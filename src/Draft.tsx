@@ -1,0 +1,1188 @@
+import { type ReactNode, useEffect, useMemo, useState } from "react";
+
+const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
+
+type Tab = "Inicio" | "Club" | "Tabla de liga" | "Transferencia";
+type DraftPhase = "initial" | "auction" | "market";
+type ServerPhase = "selection" | "dashboard" | "auction" | "market";
+type PositionGroup = "POR" | "DEF" | "MED" | "EXT" | "DEL";
+
+type Player = {
+  ID: number;
+  Name: string;
+  OVR: number;
+  Position: string;
+  Age: number;
+  Nation: string;
+  League: string;
+  PAC: number;
+  SHO: number;
+  PAS: number;
+  DRI: number;
+  DEF: number;
+  PHY: number;
+  marketValue: number;
+  minBid: number;
+  card?: string;
+  [key: string]: string | number | boolean | null | undefined;
+};
+
+type Sponsor = {
+  name: string;
+  values: Record<string, number>;
+};
+
+type TeamState = {
+  owner: string;
+  name: string;
+  budget: number;
+  sponsor: Sponsor;
+  squad: Player[];
+};
+
+type Offer = {
+  id: string;
+  from: string;
+  to: string;
+  player: Player;
+  amount: number;
+  status: "pending" | "accepted" | "rejected";
+};
+
+type Standing = {
+  name: string;
+  real: boolean;
+  champions: boolean;
+  played: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  gf: number;
+  ga: number;
+  pts: number;
+};
+
+type LeagueSettings = {
+  format: string;
+  money: number;
+  champions: boolean;
+  bidTime: number;
+  marketTime: number;
+};
+
+type Bid = {
+  owner: string;
+  playerId: number;
+  amount: number;
+};
+
+type Props = {
+  leagueCode: string;
+  players: string[];
+  currentUser: string;
+  settings: LeagueSettings;
+  onLogout: () => void;
+};
+
+type DraftEvent = {
+  organizer: string;
+  phase: ServerPhase;
+  confirmedOwners: string[];
+  auctionStage: number;
+  bidCounts: Record<string, number>;
+  teams: Record<string, TeamState>;
+  offers: Offer[];
+  news: string[];
+};
+
+const tabs: Tab[] = ["Inicio", "Club", "Tabla de liga", "Transferencia"];
+const groups: PositionGroup[] = ["POR", "DEF", "MED", "EXT", "DEL"];
+const auctionGroups: PositionGroup[] = ["POR", "DEF", "MED", "EXT", "DEL"];
+
+const groupLabels: Record<PositionGroup, string> = {
+  POR: "Portero",
+  DEF: "Defensa",
+  MED: "Mediocampo",
+  EXT: "Extremo",
+  DEL: "Delantero",
+};
+
+const sponsorNames = ["Naiq", "Adibas", "Pumma", "Under Armoury", "Jordyn"];
+const sponsorCategories = [
+  "Ingreso por ganar",
+  "Ingreso por empatar",
+  "Ingreso por perder",
+  "Maximo Goleador",
+  "Maximo MVP",
+  "Tarjetas",
+  "Mejor Portero",
+];
+
+const generatedClubNames = [
+  "Atlético Prisma",
+  "Racing Aurora",
+  "Sporting Volcan",
+  "Real Cobalto",
+  "Inter Eclipse",
+  "Union Titanes",
+  "Deportivo Bruma",
+  "Ciudad Halcones",
+  "Estrella Norte",
+  "Marina FC",
+  "Olimpia Cosmos",
+  "Club Centella",
+  "Toros Capital",
+  "Ferrovia Azul",
+  "Lobos Solar",
+  "Academia Delta",
+  "Dynamo Plata",
+  "Valle Dorado",
+  "Nexus United",
+  "Puerto Atlas",
+];
+
+const visibleDetails = [
+  "OVR",
+  "Position",
+  "Age",
+  "Nation",
+  "League",
+  "PAC",
+  "SHO",
+  "PAS",
+  "DRI",
+  "DEF",
+  "PHY",
+  "Weak foot",
+  "Skill moves",
+  "Preferred foot",
+  "Height",
+  "Weight",
+  "Alternative positions",
+  "play style",
+];
+
+const getPlayerGroup = (position = ""): PositionGroup => {
+  if (position.includes("GK")) return "POR";
+  if (/(CB|LB|RB|LWB|RWB)/.test(position)) return "DEF";
+  if (/(CDM|CM|CAM)/.test(position)) return "MED";
+  if (/(LW|RW|LM|RM)/.test(position)) return "EXT";
+  if (/(ST|CF)/.test(position)) return "DEL";
+  return "MED";
+};
+
+const sample = <T,>(items: T[], count: number, offset = 0) => {
+  const copy = [...items];
+  const result: T[] = [];
+
+  while (copy.length > 0 && result.length < count) {
+    const index = (offset + result.length * 7 + copy.length * 3) % copy.length;
+    result.push(copy.splice(index, 1)[0]);
+  }
+
+  return result;
+};
+
+const money = (value: number) => `${Math.round(value * 10) / 10}M`;
+
+const getNewsAuthor = (item: string) =>
+  item.startsWith("Fabrizio Romano") ? "Fabrizio Romano" : "Liga UFL";
+
+const getNewsText = (item: string) =>
+  item.startsWith("Fabrizio Romano: ") ? item.replace("Fabrizio Romano: ", "") : item;
+
+const getEngagement = (item: string, index: number) => ({
+  likes: ((item.length * 13 + index * 17) % 900) + 80,
+  reposts: ((item.length * 7 + index * 11) % 240) + 20,
+});
+
+const createSponsor = (owner: string, index: number): Sponsor => {
+  const name = sponsorNames[index % sponsorNames.length];
+  const values = sponsorCategories.reduce<Record<string, number>>((acc, category, categoryIndex) => {
+    const base = ((owner.length + index * 3 + categoryIndex * 2) % 9) + 1;
+    acc[category] = category === "Tarjetas" ? -base : base;
+    return acc;
+  }, {});
+
+  return { name, values };
+};
+
+const parseGoalRows = (rawText: string) =>
+  rawText
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [name, goals] = line.split(":");
+      return {
+        name: (name || "").trim(),
+        goals: Number((goals || "1").trim()) || 1,
+      };
+    });
+
+export default function Draft({ leagueCode, players, currentUser, settings, onLogout }: Props) {
+  const [activeTab, setActiveTab] = useState<Tab>("Inicio");
+  const [phase, setPhase] = useState<DraftPhase>("initial");
+  const [serverPhase, setServerPhase] = useState<ServerPhase>("selection");
+  const [organizer, setOrganizer] = useState("");
+  const [pool, setPool] = useState<Player[]>([]);
+  const [search, setSearch] = useState("");
+  const [results, setResults] = useState<Player[]>([]);
+  const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
+  const [initialPicks, setInitialPicks] = useState<Record<string, Record<PositionGroup, Player[]>>>({});
+  const [teams, setTeams] = useState<Record<string, TeamState>>({});
+  const [confirmedOwners, setConfirmedOwners] = useState<string[]>([]);
+  const [auctionStage, setAuctionStage] = useState(0);
+  const [auctionOptions, setAuctionOptions] = useState<Player[][]>([]);
+  const [bids, setBids] = useState<Bid[]>([]);
+  const [bidCounts, setBidCounts] = useState<Record<string, number>>({});
+  const [news, setNews] = useState<string[]>([]);
+  const [offerView, setOfferView] = useState<"recibidas" | "enviadas">("recibidas");
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [matchesPlayed, setMatchesPlayed] = useState(0);
+  const [standings, setStandings] = useState<Standing[]>([]);
+  const [showResultForm, setShowResultForm] = useState(false);
+  const [showCpuForm, setShowCpuForm] = useState(false);
+  const [opponentName, setOpponentName] = useState("");
+  const [goalsFor, setGoalsFor] = useState("0");
+  const [goalsAgainst, setGoalsAgainst] = useState("0");
+  const [teamScorers, setTeamScorers] = useState("");
+  const [opponentScorers, setOpponentScorers] = useState("");
+  const [teamCards, setTeamCards] = useState("0");
+  const [opponentCards, setOpponentCards] = useState("0");
+  const [cpuTeamA, setCpuTeamA] = useState("");
+  const [cpuTeamB, setCpuTeamB] = useState("");
+  const [cpuPointsA, setCpuPointsA] = useState("3");
+  const [cpuPointsB, setCpuPointsB] = useState("0");
+
+  useEffect(() => {
+    const events = new EventSource(`${API_URL}/drafts/${leagueCode}/events`);
+
+    events.onmessage = (event) => {
+      const draft: DraftEvent = JSON.parse(event.data);
+      setServerPhase(draft.phase);
+      setOrganizer(draft.organizer);
+      setConfirmedOwners(draft.confirmedOwners || []);
+      setAuctionStage(draft.auctionStage || 0);
+      setBidCounts(draft.bidCounts || {});
+      setTeams(draft.teams || {});
+      setOffers(draft.offers || []);
+      setNews(draft.news || []);
+
+      if (draft.phase === "dashboard") {
+        setPhase("initial");
+        setActiveTab("Inicio");
+      }
+
+      if (draft.phase === "auction") {
+        setPhase("auction");
+        setActiveTab("Transferencia");
+      }
+
+      if (draft.phase === "market") {
+        setPhase("market");
+        setActiveTab("Transferencia");
+      }
+    };
+
+    events.onerror = () => {
+      events.close();
+    };
+
+    return () => {
+      events.close();
+    };
+  }, [leagueCode]);
+
+  useEffect(() => {
+    fetch(`${API_URL}/players?limit=1200`)
+      .then((res) => res.json())
+      .then((data) => setPool(data.players || []))
+      .catch(() => setPool([]));
+  }, []);
+
+  useEffect(() => {
+    if (pool.length === 0 || players.length === 0 || Object.keys(teams).length > 0) return;
+
+    const used = new Set<number>();
+    const nextPicks: Record<string, Record<PositionGroup, Player[]>> = {};
+    const nextTeams: Record<string, TeamState> = {};
+
+    players.forEach((owner, ownerIndex) => {
+      nextPicks[owner] = {} as Record<PositionGroup, Player[]>;
+      groups.forEach((group, groupIndex) => {
+        const candidates = pool.filter(
+          (player) => getPlayerGroup(player.Position) === group && !used.has(player.ID)
+        );
+        const picks = sample(candidates, 3, ownerIndex + groupIndex);
+        picks.forEach((player) => used.add(player.ID));
+        nextPicks[owner][group] = picks;
+      });
+
+      nextTeams[owner] = {
+        owner,
+        name: owner,
+        budget: settings.money,
+        sponsor: createSponsor(owner, ownerIndex),
+        squad: [],
+      };
+    });
+
+    setInitialPicks(nextPicks);
+    setTeams(nextTeams);
+  }, [pool, players, settings.money, teams]);
+
+  useEffect(() => {
+    const query = search.trim();
+    const leagueSize = settings.format === "Pequena" ? 8 : settings.format === "Corta" ? 10 : 20;
+    const totalMatches = leagueSize * 2;
+    const halfSeasonMatch = Math.floor(totalMatches / 2);
+    const windowOpen = phase === "market" || matchesPlayed === 0 || matchesPlayed === halfSeasonMatch;
+
+    if (!windowOpen || query.length < 2) {
+      setResults([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    fetch(`${API_URL}/players?search=${encodeURIComponent(query)}&limit=40`, {
+      signal: controller.signal,
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        const ownerMap = new Map<number, string>();
+        Object.values(teams).forEach((team) => {
+          team.squad.forEach((player) => ownerMap.set(player.ID, team.owner));
+        });
+
+        setResults((data.players || []).filter((player: Player) => ownerMap.get(player.ID) !== currentUser));
+      })
+      .catch(() => setResults([]));
+
+    return () => controller.abort();
+  }, [search, phase, teams, currentUser, matchesPlayed, settings.format]);
+
+  useEffect(() => {
+    if (pool.length === 0 || auctionOptions.length > 0) return;
+
+    const options = auctionGroups.map((group, index) => {
+      const candidates = pool.filter((player) => getPlayerGroup(player.Position) === group);
+      return sample(candidates, 3, index + 11);
+    });
+
+    setAuctionOptions(options);
+  }, [pool, auctionOptions.length]);
+
+  const leagueTeams = useMemo(() => {
+    const realTeams = players.map((player) => ({
+      name: player,
+      real: true,
+    }));
+    const size = settings.format === "Pequena" ? 8 : settings.format === "Corta" ? 10 : 20;
+    const generated = generatedClubNames
+      .filter((name) => !players.includes(name))
+      .slice(0, Math.max(size - realTeams.length, 0))
+      .map((name) => ({ name, real: false }));
+    const allTeams = [...realTeams, ...generated].slice(0, size);
+    const championsLimit = Math.max(1, Math.floor(allTeams.length / 3));
+
+    return allTeams.map((team, index) => ({
+      ...team,
+      champions: settings.champions && index < championsLimit,
+    }));
+  }, [players, settings.champions, settings.format]);
+
+  useEffect(() => {
+    if (leagueTeams.length === 0 || standings.length > 0) return;
+
+    setStandings(
+      leagueTeams.map((team) => ({
+        name: team.name,
+        real: team.real,
+        champions: team.champions,
+        played: 0,
+        wins: 0,
+        draws: 0,
+        losses: 0,
+        gf: 0,
+        ga: 0,
+        pts: 0,
+      }))
+    );
+  }, [leagueTeams, standings.length]);
+
+  const currentTeam = teams[currentUser];
+  const hasConfirmed = confirmedOwners.includes(currentUser);
+  const isOrganizer = currentUser === organizer;
+  const currentAuctionPlayers = auctionOptions[auctionStage] || [];
+  const totalSeasonMatches = leagueTeams.length * 2;
+  const midSeasonMatch = Math.floor(totalSeasonMatches / 2);
+  const transferWindowOpen =
+    phase === "market" || matchesPlayed === 0 || matchesPlayed === midSeasonMatch;
+  const playerOwners = new Map<number, string>();
+  Object.values(teams).forEach((team) => {
+    team.squad.forEach((player) => playerOwners.set(player.ID, team.owner));
+  });
+  const pendingReceived = offers.filter(
+    (offer) => offer.to === currentUser && offer.status === "pending"
+  ).length;
+
+  const getPlayerStatusLabel = (player: Player) => {
+    const owner = playerOwners.get(player.ID);
+
+    if (!owner) return "Agente libre";
+    if (owner === currentUser) return "Tu club";
+    return `Club: ${owner}`;
+  };
+
+  const pickInitialPlayer = (group: PositionGroup, player: Player) => {
+    if (!currentTeam || hasConfirmed) return;
+
+    setTeams((currentTeams) => ({
+      ...currentTeams,
+      [currentUser]: {
+        ...currentTeams[currentUser],
+        squad: [
+          ...currentTeams[currentUser].squad.filter((item) => getPlayerGroup(item.Position) !== group),
+          { ...player, releaseValue: 0 },
+        ],
+      },
+    }));
+  };
+
+  const removeInitialPlayer = (group: PositionGroup) => {
+    if (!currentTeam || hasConfirmed) return;
+
+    setTeams((currentTeams) => ({
+      ...currentTeams,
+      [currentUser]: {
+        ...currentTeams[currentUser],
+        squad: [
+          ...currentTeams[currentUser].squad,
+        ].filter((item) => getPlayerGroup(item.Position) !== group),
+      },
+    }));
+  };
+
+  const confirmTeam = async () => {
+    if (!currentTeam || currentTeam.squad.length < groups.length) {
+      alert("Elige una opcion por posicion antes de confirmar");
+      return;
+    }
+
+    const res = await fetch(`${API_URL}/drafts/${leagueCode}/confirm`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+        squad: currentTeam.squad.map((player) => player.ID),
+      }),
+    });
+
+    if (!res.ok) {
+      alert("No se pudo confirmar tu seleccion");
+    }
+  };
+
+  const startAuction = async () => {
+    const res = await fetch(`${API_URL}/drafts/${leagueCode}/start-auction`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ username: currentUser }),
+    });
+
+    if (!res.ok) {
+      alert("Aun no se puede iniciar la subasta");
+    }
+  };
+
+  const placeBid = async (player: Player) => {
+    const amountText = window.prompt(`Puja minima: ${money(player.minBid)}. Escribe tu puja en millones:`);
+    const amount = Number(amountText);
+
+    if (!amountText) return;
+    if (!currentTeam || amount > currentTeam.budget) {
+      alert("No tienes suficiente presupuesto");
+      return;
+    }
+    if (amount < player.minBid) {
+      alert("La puja debe ser minimo la mitad del valor de mercado");
+      return;
+    }
+
+    setBids((current) => [
+      ...current.filter((bid) => !(bid.owner === currentUser && bid.playerId === player.ID)),
+      { owner: currentUser, playerId: player.ID, amount },
+    ]);
+
+    const res = await fetch(`${API_URL}/drafts/${leagueCode}/bid`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+        playerId: player.ID,
+        amount,
+      }),
+    });
+
+    if (!res.ok) {
+      alert("No se pudo registrar la puja");
+    }
+  };
+
+  const resolveAuctionStage = async () => {
+    const winners = currentAuctionPlayers.flatMap((player) => {
+      const playerBids = bids
+        .filter((bid) => bid.playerId === player.ID)
+        .sort((a, b) => b.amount - a.amount);
+      const winner = playerBids[0];
+      return winner ? [{ player, winner }] : [];
+    });
+
+    setBids([]);
+
+    const res = await fetch(`${API_URL}/drafts/${leagueCode}/next-stage`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+        winners: winners.map(({ player, winner }) => ({
+          owner: winner.owner,
+          playerName: player.Name,
+          amount: winner.amount,
+        })),
+      }),
+    });
+
+    if (!res.ok) {
+      alert("Solo el organizador puede pasar de etapa");
+    }
+  };
+
+  const buyPlayer = async (player: Player) => {
+    if (!currentTeam) return;
+    if (currentTeam.budget < player.marketValue) {
+      alert("No tienes suficiente presupuesto");
+      return;
+    }
+    if (Object.values(teams).some((team) => team.squad.some((item) => item.ID === player.ID))) {
+      alert("Ese jugador ya pertenece a otro club");
+      return;
+    }
+
+    const res = await fetch(`${API_URL}/drafts/${leagueCode}/buy`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ username: currentUser, playerId: player.ID }),
+    });
+
+    if (!res.ok) {
+      alert("No se pudo comprar este jugador");
+      return;
+    }
+
+    setSelectedPlayer(null);
+  };
+
+  const releasePlayer = async (player: Player) => {
+    const res = await fetch(`${API_URL}/drafts/${leagueCode}/release`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ username: currentUser, playerId: player.ID }),
+    });
+
+    if (!res.ok) {
+      alert("No se pudo despedir este jugador");
+    }
+  };
+
+  const sendOffer = async (player: Player) => {
+    const owner = playerOwners.get(player.ID);
+
+    if (!owner || owner === currentUser) return;
+
+    const amountText = window.prompt("Escribe tu oferta en millones:");
+    const amount = Number(amountText);
+
+    if (!amountText) return;
+    if (!currentTeam || amount <= 0 || amount > currentTeam.budget) {
+      alert("Oferta invalida o sin presupuesto");
+      return;
+    }
+
+    const res = await fetch(`${API_URL}/drafts/${leagueCode}/offers`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: currentUser,
+        playerId: player.ID,
+        amount,
+      }),
+    });
+
+    if (!res.ok) {
+      alert("No se pudo enviar la oferta");
+    }
+  };
+
+  const handleOfferDecision = async (offerId: string, decision: "accepted" | "rejected") => {
+    const res = await fetch(`${API_URL}/drafts/${leagueCode}/offers/${offerId}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ decision }),
+    });
+
+    if (!res.ok) {
+      alert("No se pudo procesar la oferta");
+    }
+  };
+
+  const applyMatchResult = (
+    teamAName: string,
+    teamBName: string,
+    scoreA: number,
+    scoreB: number,
+    extraNews: string[]
+  ) => {
+    setStandings((current) =>
+      current
+        .map((team) => {
+          if (team.name !== teamAName && team.name !== teamBName) return team;
+
+          const isA = team.name === teamAName;
+          const goalsForValue = isA ? scoreA : scoreB;
+          const goalsAgainstValue = isA ? scoreB : scoreA;
+          const win = goalsForValue > goalsAgainstValue ? 1 : 0;
+          const draw = goalsForValue === goalsAgainstValue ? 1 : 0;
+          const loss = goalsForValue < goalsAgainstValue ? 1 : 0;
+
+          return {
+            ...team,
+            played: team.played + 1,
+            wins: team.wins + win,
+            draws: team.draws + draw,
+            losses: team.losses + loss,
+            gf: team.gf + goalsForValue,
+            ga: team.ga + goalsAgainstValue,
+            pts: team.pts + (win ? 3 : draw ? 1 : 0),
+          };
+        })
+        .sort((a, b) => b.pts - a.pts || b.gf - a.gf)
+    );
+
+    setMatchesPlayed((current) => {
+      const next = current + 1;
+      if (next >= totalSeasonMatches) {
+        const winnerName =
+          [...standings]
+            .sort((a, b) => b.pts - a.pts || b.gf - a.gf)[0]?.name || teamAName;
+        setNews((currentNews) => [
+          `Liga UFL: ${winnerName} es campeon de la temporada`,
+          ...extraNews,
+          ...currentNews,
+        ]);
+        setPhase("initial");
+        setServerPhase("selection");
+        setConfirmedOwners([]);
+        return 0;
+      }
+      setNews((currentNews) => [...extraNews, ...currentNews]);
+      return next;
+    });
+  };
+
+  const submitManagerResult = () => {
+    const myGoals = Number(goalsFor);
+    const rivalGoals = Number(goalsAgainst);
+    if (!opponentName) {
+      alert("Selecciona rival");
+      return;
+    }
+
+    const scorerRows = parseGoalRows(teamScorers);
+    const rivalScorerRows = parseGoalRows(opponentScorers);
+    const extraNews = [
+      `Liga UFL: ${currentUser} ${myGoals}-${rivalGoals} ${opponentName}`,
+      ...scorerRows.map((row) => `Liga UFL: ${row.name} anoto ${row.goals} gol(es) para ${currentUser}`),
+      ...rivalScorerRows.map((row) => `Liga UFL: ${row.name} anoto ${row.goals} gol(es) para ${opponentName}`),
+      `Liga UFL: tarjetas ${currentUser} ${teamCards} - ${opponentCards} ${opponentName}`,
+    ];
+
+    applyMatchResult(currentUser, opponentName, myGoals, rivalGoals, extraNews);
+    setShowResultForm(false);
+  };
+
+  const submitCpuResult = () => {
+    if (!cpuTeamA || !cpuTeamB || cpuTeamA === cpuTeamB) {
+      alert("Selecciona dos equipos CPU distintos");
+      return;
+    }
+
+    const pointsA = Number(cpuPointsA);
+    const pointsB = Number(cpuPointsB);
+
+    setStandings((current) =>
+      current
+        .map((team) => {
+          if (team.name === cpuTeamA) return { ...team, pts: team.pts + pointsA, played: team.played + 1 };
+          if (team.name === cpuTeamB) return { ...team, pts: team.pts + pointsB, played: team.played + 1 };
+          return team;
+        })
+        .sort((a, b) => b.pts - a.pts || b.gf - a.gf)
+    );
+    setMatchesPlayed((current) => current + 1);
+    setNews((current) => [`Liga UFL: resultado CPU cargado para ${cpuTeamA} y ${cpuTeamB}`, ...current]);
+    setShowCpuForm(false);
+  };
+
+  const renderPlayerCard = (player: Player, action?: ReactNode) => (
+    <article className="mini-player-card" key={player.ID} onClick={() => setSelectedPlayer(player)}>
+      {player.card && <img src={player.card} alt={player.Name} />}
+      <div>
+        <strong>{player.Name}</strong>
+        <span>{player.Position} | GLB {player.OVR}</span>
+        <span>{getPlayerStatusLabel(player)}</span>
+        <small>Valor: {money(player.marketValue)}</small>
+      </div>
+      {action}
+    </article>
+  );
+
+  const renderSponsor = () => (
+    currentTeam && (
+      <div className="sponsor-card">
+        <h3>Patrocinador: {currentTeam.sponsor.name}</h3>
+        <div className="sponsor-grid">
+          {Object.entries(currentTeam.sponsor.values).map(([category, value]) => (
+            <div key={category}>
+              <span>{category}</span>
+              <strong>{money(value)}</strong>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  );
+
+  const renderSelection = () => (
+    <main className="draft-shell selection-shell">
+      <header className="draft-topbar">
+        <div>
+          <span className="form-kicker">Seleccion principal</span>
+          <h1>Elige tu equipo inicial</h1>
+        </div>
+        <button className="logout-btn draft-logout" onClick={onLogout}>
+          Cerrar sesion
+        </button>
+      </header>
+
+      <section className="draft-panel">
+        <p>
+          {hasConfirmed
+            ? `Esperando managers: ${confirmedOwners.length}/${players.length}`
+            : "Elige una opcion por posicion. Al seleccionar, el boton cambia a eliminar."}
+        </p>
+
+        {renderSponsor()}
+
+        <div className="position-pick-grid">
+          {groups.map((group) => {
+            const selected = currentTeam?.squad.find((item) => getPlayerGroup(item.Position) === group);
+
+            return (
+              <div key={group} className="pick-group">
+                <h3>{groupLabels[group]}</h3>
+                {(initialPicks[currentUser]?.[group] || []).map((player) => {
+                  const isSelected = selected?.ID === player.ID;
+
+                  return renderPlayerCard(
+                    player,
+                    <button
+                      className={`small-action ${isSelected ? "danger" : ""}`}
+                      disabled={hasConfirmed}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (isSelected) removeInitialPlayer(group);
+                        else pickInitialPlayer(group, player);
+                      }}
+                    >
+                      {isSelected ? "Eliminar" : "Elegir"}
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+
+        <button className="btn btn-login" disabled={hasConfirmed} onClick={confirmTeam}>
+          {hasConfirmed ? "EQUIPO CONFIRMADO" : "CONFIRMAR EQUIPO"}
+        </button>
+      </section>
+    </main>
+  );
+
+  const renderInicio = () => (
+    <section className="draft-panel">
+      <h2>Noticias de la liga</h2>
+      <p>Liga {leagueCode} | Jornada {matchesPlayed}/{totalSeasonMatches}</p>
+
+      {serverPhase === "dashboard" && (
+        <button
+          className="btn btn-login"
+          disabled={!isOrganizer}
+          onClick={startAuction}
+        >
+          {isOrganizer ? "INICIAR SUBASTA" : "ESPERANDO AL ORGANIZADOR"}
+        </button>
+      )}
+
+      <div className="news-list">
+        {news.length === 0 && <div className="draft-empty-state">Aun no hay noticias.</div>}
+        {news.map((item, index) => {
+          const engagement = getEngagement(item, index);
+          return (
+            <article key={`${item}-${index}`} className="news-item">
+              <div className="news-avatar">{getNewsAuthor(item).slice(0, 1)}</div>
+              <div>
+                <strong>{getNewsAuthor(item)}</strong>
+                <p>{getNewsText(item)}</p>
+                <div className="news-meta">
+                  <span>{engagement.likes} likes</span>
+                  <span>{engagement.reposts} retweets</span>
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+
+  const renderClub = () => (
+    <section className="draft-panel">
+      <h2>Club</h2>
+      <p>{currentUser} | Presupuesto disponible: {money(currentTeam?.budget || 0)}</p>
+      {renderSponsor()}
+      <div className="card-grid">
+        {(currentTeam?.squad || []).map((player) =>
+          renderPlayerCard(
+            player,
+            <button
+              className="small-action danger"
+              onClick={(event) => {
+                event.stopPropagation();
+                releasePlayer(player);
+              }}
+            >
+              Despedir
+            </button>
+          )
+        )}
+      </div>
+    </section>
+  );
+
+  const renderTable = () => (
+    <section className="draft-panel">
+      <h2>Tabla de liga</h2>
+      <div className="table-actions">
+        <button className="btn btn-login compact-btn" onClick={() => setShowResultForm(true)}>
+          AGREGAR RESULTADO
+        </button>
+        {isOrganizer && (
+          <button className="btn btn-outline compact-btn" onClick={() => setShowCpuForm(true)}>
+            RESULTADO CPU
+          </button>
+        )}
+      </div>
+      <div className="league-table">
+        {standings.map((team, index) => (
+          <div key={team.name} className="league-row rich">
+            <span>{index + 1}</span>
+            <strong>{team.name}</strong>
+            <small>{team.real ? "Real" : "Generado"}</small>
+            <em>{team.champions ? "Champions" : "Liga"}</em>
+            <b>{team.pts} pts</b>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+
+  const renderTransfer = () => (
+    <section className="draft-panel transfer-panel">
+      <div className="transfer-header">
+        <div>
+          <h2>{phase === "auction" ? `Subasta etapa ${auctionStage + 1}/6` : "Transferencias"}</h2>
+          <p>
+            {phase === "auction"
+              ? `Tiempo configurado: ${settings.bidTime}s por etapa`
+              : transferWindowOpen
+                ? `Ventana de mercado disponible`
+                : `Mercado cerrado hasta la mitad de temporada (${midSeasonMatch})`}
+          </p>
+        </div>
+      </div>
+
+      {phase === "auction" && (
+        <>
+          <div className="card-grid">
+            {currentAuctionPlayers.map((player) => {
+              const bidCount = bidCounts[String(player.ID)] || 0;
+              return renderPlayerCard(
+                player,
+                <button
+                  className="small-action"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    placeBid(player);
+                  }}
+                >
+                  {bidCount} pujando
+                </button>
+              );
+            })}
+          </div>
+          {isOrganizer && (
+            <button className="btn btn-login" onClick={resolveAuctionStage}>
+              PASAR ETAPA
+            </button>
+          )}
+        </>
+      )}
+
+      {phase === "market" && (
+        <>
+          <div className="offer-switch">
+            <button className={offerView === "recibidas" ? "active" : ""} onClick={() => setOfferView("recibidas")}>
+              Ofertas recibidas
+            </button>
+            <button className={offerView === "enviadas" ? "active" : ""} onClick={() => setOfferView("enviadas")}>
+              Ofertas enviadas
+            </button>
+          </div>
+          <div className="offers-panel">
+            {(offerView === "recibidas"
+              ? offers.filter((offer) => offer.to === currentUser)
+              : offers.filter((offer) => offer.from === currentUser)
+            ).map((offer) => (
+              <div key={offer.id} className="offer-card">
+                <strong>{offer.player.Name}</strong>
+                <span>{offer.from} {"->"} {offer.to}</span>
+                <small>{money(offer.amount)} | {offer.status}</small>
+                {offerView === "recibidas" && offer.status === "pending" && (
+                  <div className="offer-actions">
+                    <button className="small-action" onClick={() => handleOfferDecision(offer.id, "accepted")}>Aceptar</button>
+                    <button className="small-action danger" onClick={() => handleOfferDecision(offer.id, "rejected")}>Rechazar</button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <input
+            className="input transfer-search"
+            placeholder="Buscar jugador"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          <div className="card-grid">
+            {search.trim().length < 2 && <div className="draft-empty-state">Busca por nombre para comprar.</div>}
+            {results.map((player) => {
+              const owner = playerOwners.get(player.ID);
+              const isOwnedByOther = owner && owner !== currentUser;
+
+              return renderPlayerCard(
+                player,
+                <button
+                  className="small-action"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (isOwnedByOther) sendOffer(player);
+                    else buyPlayer(player);
+                  }}
+                >
+                  {isOwnedByOther ? `Negociar con ${owner}` : "Comprar"}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {phase !== "auction" && phase !== "market" && !transferWindowOpen && (
+        <div className="draft-empty-state">
+          El mercado se abre al inicio y en la mitad de temporada.
+        </div>
+      )}
+    </section>
+  );
+
+  const renderPanel = () => {
+    if (activeTab === "Inicio") return renderInicio();
+    if (activeTab === "Club") return renderClub();
+    if (activeTab === "Tabla de liga") return renderTable();
+    return renderTransfer();
+  };
+
+  if (serverPhase === "selection") {
+    return renderSelection();
+  }
+
+  return (
+    <main className="draft-shell">
+      <header className="draft-topbar">
+        <div>
+          <span className="form-kicker">Draft en vivo</span>
+          <h1>Ultimate Fantasy League</h1>
+        </div>
+        <button className="logout-btn draft-logout" onClick={onLogout}>
+          Cerrar sesion
+        </button>
+      </header>
+
+      <nav className="draft-tabs bottom-tabs">
+        {tabs.map((tab) => (
+          <button
+            key={tab}
+            className={activeTab === tab ? "active" : ""}
+            onClick={() => setActiveTab(tab)}
+          >
+            {tab}
+            {tab === "Transferencia" && pendingReceived > 0 && <span className="notif-dot"></span>}
+          </button>
+        ))}
+      </nav>
+
+      {renderPanel()}
+
+      {showResultForm && (
+        <div className="player-modal" onClick={() => setShowResultForm(false)}>
+          <div className="player-modal-card" onClick={(event) => event.stopPropagation()}>
+            <button className="modal-close" onClick={() => setShowResultForm(false)}>Cerrar</button>
+            <h2>Agregar resultado</h2>
+            <div className="form-grid">
+              <label className="field">
+                <span>Tu equipo</span>
+                <input className="input" value={currentUser} disabled />
+              </label>
+              <label className="field">
+                <span>Rival</span>
+                <select className="input" value={opponentName} onChange={(e) => setOpponentName(e.target.value)}>
+                  <option value="">Selecciona</option>
+                  {standings.filter((team) => team.name !== currentUser).map((team) => (
+                    <option key={team.name}>{team.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Marcador tuyo</span>
+                <input className="input" value={goalsFor} onChange={(e) => setGoalsFor(e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Marcador rival</span>
+                <input className="input" value={goalsAgainst} onChange={(e) => setGoalsAgainst(e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Goleadores tuyos (Nombre:goles)</span>
+                <textarea className="input textarea-input" value={teamScorers} onChange={(e) => setTeamScorers(e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Goleadores rival (Nombre:goles)</span>
+                <textarea className="input textarea-input" value={opponentScorers} onChange={(e) => setOpponentScorers(e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Tarjetas de tu equipo</span>
+                <input className="input" value={teamCards} onChange={(e) => setTeamCards(e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Tarjetas del rival</span>
+                <input className="input" value={opponentCards} onChange={(e) => setOpponentCards(e.target.value)} />
+              </label>
+            </div>
+            <button className="btn btn-login" onClick={submitManagerResult}>GUARDAR RESULTADO</button>
+          </div>
+        </div>
+      )}
+
+      {showCpuForm && (
+        <div className="player-modal" onClick={() => setShowCpuForm(false)}>
+          <div className="player-modal-card" onClick={(event) => event.stopPropagation()}>
+            <button className="modal-close" onClick={() => setShowCpuForm(false)}>Cerrar</button>
+            <h2>Resultado CPU</h2>
+            <div className="form-grid">
+              <label className="field">
+                <span>Equipo CPU A</span>
+                <select className="input" value={cpuTeamA} onChange={(e) => setCpuTeamA(e.target.value)}>
+                  <option value="">Selecciona</option>
+                  {standings.filter((team) => !players.includes(team.name)).map((team) => (
+                    <option key={team.name}>{team.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Equipo CPU B</span>
+                <select className="input" value={cpuTeamB} onChange={(e) => setCpuTeamB(e.target.value)}>
+                  <option value="">Selecciona</option>
+                  {standings.filter((team) => !players.includes(team.name)).map((team) => (
+                    <option key={team.name}>{team.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Puntos CPU A</span>
+                <input className="input" value={cpuPointsA} onChange={(e) => setCpuPointsA(e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Puntos CPU B</span>
+                <input className="input" value={cpuPointsB} onChange={(e) => setCpuPointsB(e.target.value)} />
+              </label>
+            </div>
+            <button className="btn btn-login" onClick={submitCpuResult}>GUARDAR CPU</button>
+          </div>
+        </div>
+      )}
+
+      {selectedPlayer && (
+        <div className="player-modal" onClick={() => setSelectedPlayer(null)}>
+          <div className="player-modal-card" onClick={(event) => event.stopPropagation()}>
+            <button className="modal-close" onClick={() => setSelectedPlayer(null)}>Cerrar</button>
+            <div className="player-hero">
+              {selectedPlayer.card && <img src={selectedPlayer.card} alt={selectedPlayer.Name} />}
+              <div>
+                <span>{getPlayerStatusLabel(selectedPlayer)}</span>
+                <h3>{selectedPlayer.Name}</h3>
+                <strong>{selectedPlayer.OVR}</strong>
+                <p>Valor mercado: {money(selectedPlayer.marketValue)} | Puja minima: {money(selectedPlayer.minBid)}</p>
+              </div>
+            </div>
+            <div className="stat-grid">
+              {visibleDetails.map((key) => (
+                <div key={key} className="stat-card">
+                  <span>{key}</span>
+                  <strong>{selectedPlayer[key] ?? "-"}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </main>
+  );
+}
