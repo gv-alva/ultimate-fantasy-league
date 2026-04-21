@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import "./styles.css";
 import Draft from "./Draft";
 import Lobby from "./Lobby";
+import logo from "./assets/logo.png";
 
 type LobbyData = {
   code: string;
@@ -311,7 +312,7 @@ export default function App() {
 
       {/* TOP */}
       <div className="top" style={{ position: "relative" }}>
-        <img src="/src/assets/logo.png" className="logo" />
+        <img src={logo} className="logo" />
 
         <button className="logout-btn" onClick={handleLogout}>
           Cerrar sesion
