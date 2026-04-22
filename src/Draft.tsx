@@ -227,6 +227,36 @@ const pickOne = (items: Player[], used: Set<number>, offset: number) => {
   return sample(candidates, 1, offset)[0] || null;
 };
 
+const getPlayerWeight = (player: Player) => {
+  const overall = player.OVR;
+
+  if (overall >= 95) return 1;
+  if (overall >= 92) return 2;
+  if (overall >= 89) return 3;
+  if (overall >= 86) return 5;
+  if (overall >= 83) return 10;
+  if (overall >= 80) return 18;
+  return 28;
+};
+
+const weightedPick = (items: Player[], used: Set<number>, offset: number) => {
+  const candidates = items.filter((player) => !used.has(player.ID));
+
+  if (candidates.length === 0) return null;
+
+  const totalWeight = candidates.reduce((sum, player) => sum + getPlayerWeight(player), 0);
+  let target = (offset % Math.max(totalWeight, 1)) + 1;
+
+  for (const player of candidates) {
+    target -= getPlayerWeight(player);
+    if (target <= 0) {
+      return player;
+    }
+  }
+
+  return candidates[candidates.length - 1];
+};
+
 const fillSlots = (
   candidates: Player[],
   used: Set<number>,
@@ -234,17 +264,12 @@ const fillSlots = (
   offset: number
 ) => {
   const picked: Player[] = [];
-  const available = candidates.filter((player) => !used.has(player.ID));
 
-  while (picked.length < count && available.length > 0) {
-    const nextPlayer = sample(available, 1, offset + picked.length)[0];
+  while (picked.length < count) {
+    const nextPlayer = weightedPick(candidates, used, offset + picked.length * 11);
     if (!nextPlayer) break;
     picked.push(nextPlayer);
     used.add(nextPlayer.ID);
-    const nextIndex = available.findIndex((player) => player.ID === nextPlayer.ID);
-    if (nextIndex >= 0) {
-      available.splice(nextIndex, 1);
-    }
   }
 
   return picked;
@@ -257,54 +282,31 @@ const buildInitialPicks = (
   const eligiblePool = pool.filter((player) => player.OVR >= 75);
   const used = new Set<number>();
   const nextPicks: Record<string, Record<PositionGroup, Player[]>> = {};
-  const ultraRarePlayers = fillSlots(
-    eligiblePool.filter((player) => player.OVR > 88),
-    used,
-    owners.length,
-    7
-  );
-  const highPlayers = fillSlots(
-    eligiblePool.filter((player) => player.OVR >= 85 && player.OVR <= 88),
-    used,
-    Math.max(1, Math.floor(owners.length / 2)),
-    13
-  );
-  const highIds = new Set(highPlayers.map((player) => player.ID));
 
   owners.forEach((owner, ownerIndex) => {
     nextPicks[owner] = {} as Record<PositionGroup, Player[]>;
-    const ultraRarePlayer = ultraRarePlayers[ownerIndex] || null;
-    const highPlayer = highPlayers[ownerIndex] || null;
-    const highGroup = groups[(ownerIndex + 2) % groups.length];
-    const ultraRareGroup = groups[(ownerIndex + 4) % groups.length];
+    const ultraRarePlayer = pickOne(
+      eligiblePool.filter((player) => player.OVR >= 88),
+      used,
+      ownerIndex + 17
+    );
+    const ultraRareGroup = ultraRarePlayer ? getPlayerGroup(ultraRarePlayer.Position) : null;
 
     groups.forEach((group, groupIndex) => {
       const baseCandidates = eligiblePool.filter(
         (player) =>
           getPlayerGroup(player.Position) === group &&
-          !used.has(player.ID) &&
-          player.OVR <= 84 &&
-          !highIds.has(player.ID)
+          !used.has(player.ID)
       );
       const nextGroupPicks = fillSlots(baseCandidates, used, 3, ownerIndex + groupIndex);
       const shouldInjectUltraRare =
         ultraRarePlayer &&
         group === ultraRareGroup &&
         nextGroupPicks.length > 0;
-      const shouldInjectRare =
-        !shouldInjectUltraRare &&
-        highPlayer &&
-        group === highGroup &&
-        nextGroupPicks.length > 0;
 
       if (shouldInjectUltraRare) {
         nextGroupPicks.pop();
         nextGroupPicks.unshift(ultraRarePlayer);
-      } else if (shouldInjectRare) {
-        if (highPlayer) {
-          nextGroupPicks.pop();
-          nextGroupPicks.unshift(highPlayer);
-        }
       }
       nextPicks[owner][group] = nextGroupPicks;
     });
@@ -331,7 +333,7 @@ const buildAuctionStages = (pool: Player[]) => {
     }
 
     const stageCandidates = eligiblePool.filter(
-      (player) => !used.has(player.ID) && player.OVR <= 84
+      (player) => !used.has(player.ID)
     );
     const fillerPlayers = fillSlots(stageCandidates, used, 10 - stagePlayers.length, stageIndex + 41);
     stagePlayers.push(...fillerPlayers);
