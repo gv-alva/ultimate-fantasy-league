@@ -99,7 +99,6 @@ type DraftEvent = {
 
 const tabs: Tab[] = ["Inicio", "Club", "Tabla de liga", "Transferencia"];
 const groups: PositionGroup[] = ["POR", "DEF", "MED", "EXT", "DEL"];
-const auctionGroups: PositionGroup[] = ["POR", "DEF", "MED", "EXT", "DEL"];
 
 const groupLabels: Record<PositionGroup, string> = {
   POR: "Portero",
@@ -222,27 +221,79 @@ const parseGoalRows = (rawText: string) =>
       };
     });
 
+const pickOne = (items: Player[], used: Set<number>, offset: number) => {
+  const candidates = items.filter((player) => !used.has(player.ID));
+  if (candidates.length === 0) return null;
+  return sample(candidates, 1, offset)[0] || null;
+};
+
 const buildInitialPicks = (
   pool: Player[],
   owners: string[]
 ): Record<string, Record<PositionGroup, Player[]>> => {
+  const eligiblePool = pool.filter((player) => player.OVR >= 75);
   const used = new Set<number>();
   const nextPicks: Record<string, Record<PositionGroup, Player[]>> = {};
 
   owners.forEach((owner, ownerIndex) => {
     nextPicks[owner] = {} as Record<PositionGroup, Player[]>;
 
+    const eliteCandidates = eligiblePool.filter((player) => player.OVR > 88 && !used.has(player.ID));
+    const eliteGroup = groups[(ownerIndex * 3) % groups.length];
+    const elitePlayer = pickOne(eliteCandidates, used, ownerIndex + 17);
+    let eliteAssigned = false;
+
     groups.forEach((group, groupIndex) => {
-      const candidates = pool.filter(
-        (player) => getPlayerGroup(player.Position) === group && !used.has(player.ID)
+      const groupCandidates = eligiblePool.filter(
+        (player) =>
+          getPlayerGroup(player.Position) === group &&
+          !used.has(player.ID) &&
+          (eliteAssigned || player.OVR <= 88 || group === eliteGroup)
       );
-      const picks = sample(candidates, 3, ownerIndex + groupIndex);
-      picks.forEach((player) => used.add(player.ID));
-      nextPicks[owner][group] = picks;
+
+      const picks = sample(groupCandidates, 3, ownerIndex + groupIndex);
+      const nextGroupPicks = [...picks];
+
+      if (group === eliteGroup && elitePlayer) {
+        nextGroupPicks.pop();
+        nextGroupPicks.unshift(elitePlayer);
+        eliteAssigned = true;
+      }
+
+      nextGroupPicks.forEach((player) => used.add(player.ID));
+      nextPicks[owner][group] = nextGroupPicks;
     });
   });
 
   return nextPicks;
+};
+
+const buildAuctionStages = (pool: Player[]) => {
+  const eligiblePool = pool.filter((player) => player.OVR >= 75);
+  const used = new Set<number>();
+
+  return Array.from({ length: 6 }, (_, stageIndex) => {
+    const stagePlayers: Player[] = [];
+    const eliteCandidate = pickOne(
+      eligiblePool.filter((player) => player.OVR >= 85),
+      used,
+      stageIndex + 29
+    );
+
+    if (eliteCandidate) {
+      stagePlayers.push(eliteCandidate);
+      used.add(eliteCandidate.ID);
+    }
+
+    const stageCandidates = eligiblePool.filter((player) => !used.has(player.ID));
+    const fillerPlayers = sample(stageCandidates, 10 - stagePlayers.length, stageIndex + 41);
+    fillerPlayers.forEach((player) => {
+      used.add(player.ID);
+      stagePlayers.push(player);
+    });
+
+    return stagePlayers;
+  });
 };
 
 const decorateTeams = (
@@ -310,7 +361,28 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       setConfirmedOwners(draft.confirmedOwners || []);
       setAuctionStage(draft.auctionStage || 0);
       setBidCounts(draft.bidCounts || {});
-      setTeams(decorateTeams(draft.teams || {}, players, settings.money));
+      setTeams((currentTeams) => {
+        const nextTeams = decorateTeams(draft.teams || {}, players, settings.money);
+        const incomingCurrentTeam = nextTeams[currentUser];
+        const localCurrentTeam = currentTeams[currentUser];
+        const currentUserConfirmed = (draft.confirmedOwners || []).includes(currentUser);
+
+        if (
+          !currentUserConfirmed &&
+          localCurrentTeam &&
+          localCurrentTeam.squad.length > 0 &&
+          incomingCurrentTeam &&
+          incomingCurrentTeam.squad.length === 0
+        ) {
+          nextTeams[currentUser] = {
+            ...incomingCurrentTeam,
+            name: localCurrentTeam.name,
+            squad: localCurrentTeam.squad,
+          };
+        }
+
+        return nextTeams;
+      });
       setOffers(draft.offers || []);
       setNews(draft.news || []);
 
@@ -342,7 +414,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     return () => {
       events.close();
     };
-  }, [leagueCode]);
+  }, [leagueCode, players, settings.money, currentUser]);
 
   useEffect(() => {
     const nextTeam = teams[currentUser];
@@ -406,12 +478,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   useEffect(() => {
     if (pool.length === 0 || auctionOptions.length > 0) return;
 
-    const options = auctionGroups.map((group, index) => {
-      const candidates = pool.filter((player) => getPlayerGroup(player.Position) === group);
-      return sample(candidates, 3, index + 11);
-    });
-
-    setAuctionOptions(options);
+    setAuctionOptions(buildAuctionStages(pool));
   }, [pool, auctionOptions.length]);
 
   const leagueTeams = useMemo(() => {
