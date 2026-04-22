@@ -4,7 +4,7 @@ import Draft from "./Draft";
 import Lobby from "./Lobby";
 import logo from "./assets/logo.png";
 
-const APP_VERSION = "0.402";
+const APP_VERSION = "0.403";
 
 type LobbyData = {
   code: string;
@@ -464,7 +464,7 @@ export default function App() {
       {/* ===== LOGIN ===== */}
       {screen === "login" && (
         <div className="bottom">
-          <div className="lobby-status">Version {APP_VERSION}</div>
+          <div className="login-version">v{APP_VERSION}</div>
 
           <input
             className="input"

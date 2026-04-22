@@ -257,50 +257,53 @@ const buildInitialPicks = (
   const eligiblePool = pool.filter((player) => player.OVR >= 75);
   const used = new Set<number>();
   const nextPicks: Record<string, Record<PositionGroup, Player[]>> = {};
-  const ultraRarePlayer = pickOne(
+  const ultraRarePlayers = fillSlots(
     eligiblePool.filter((player) => player.OVR > 88),
     used,
+    owners.length,
     7
   );
-  const rarePlayers = fillSlots(
-    eligiblePool.filter((player) => player.OVR >= 86 && player.OVR <= 88),
+  const highPlayers = fillSlots(
+    eligiblePool.filter((player) => player.OVR >= 85 && player.OVR <= 88),
     used,
     Math.max(1, Math.floor(owners.length / 2)),
     13
   );
-  const rareIds = new Set(rarePlayers.map((player) => player.ID));
+  const highIds = new Set(highPlayers.map((player) => player.ID));
 
   owners.forEach((owner, ownerIndex) => {
     nextPicks[owner] = {} as Record<PositionGroup, Player[]>;
+    const ultraRarePlayer = ultraRarePlayers[ownerIndex] || null;
+    const highPlayer = highPlayers[ownerIndex] || null;
+    const highGroup = groups[(ownerIndex + 2) % groups.length];
+    const ultraRareGroup = groups[(ownerIndex + 4) % groups.length];
 
     groups.forEach((group, groupIndex) => {
       const baseCandidates = eligiblePool.filter(
         (player) =>
           getPlayerGroup(player.Position) === group &&
           !used.has(player.ID) &&
-          player.OVR <= 85 &&
-          !rareIds.has(player.ID)
+          player.OVR <= 84 &&
+          !highIds.has(player.ID)
       );
       const nextGroupPicks = fillSlots(baseCandidates, used, 3, ownerIndex + groupIndex);
       const shouldInjectUltraRare =
         ultraRarePlayer &&
-        ownerIndex === 0 &&
-        groupIndex === 0 &&
+        group === ultraRareGroup &&
         nextGroupPicks.length > 0;
       const shouldInjectRare =
         !shouldInjectUltraRare &&
-        rarePlayers.length > 0 &&
-        ((ownerIndex + groupIndex) % 3 === 0) &&
+        highPlayer &&
+        group === highGroup &&
         nextGroupPicks.length > 0;
 
       if (shouldInjectUltraRare) {
         nextGroupPicks.pop();
         nextGroupPicks.unshift(ultraRarePlayer);
       } else if (shouldInjectRare) {
-        const rarePlayer = rarePlayers.shift();
-        if (rarePlayer) {
+        if (highPlayer) {
           nextGroupPicks.pop();
-          nextGroupPicks.unshift(rarePlayer);
+          nextGroupPicks.unshift(highPlayer);
         }
       }
       nextPicks[owner][group] = nextGroupPicks;
@@ -328,7 +331,7 @@ const buildAuctionStages = (pool: Player[]) => {
     }
 
     const stageCandidates = eligiblePool.filter(
-      (player) => !used.has(player.ID) && player.OVR <= 85
+      (player) => !used.has(player.ID) && player.OVR <= 84
     );
     const fillerPlayers = fillSlots(stageCandidates, used, 10 - stagePlayers.length, stageIndex + 41);
     stagePlayers.push(...fillerPlayers);
@@ -366,6 +369,13 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [results, setResults] = useState<Player[]>([]);
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [initialPicks, setInitialPicks] = useState<Record<string, Record<PositionGroup, Player[]>>>({});
+  const [selectionState, setSelectionState] = useState<Record<PositionGroup, number | null>>({
+    POR: null,
+    DEF: null,
+    MED: null,
+    EXT: null,
+    DEL: null,
+  });
   const [teams, setTeams] = useState<Record<string, TeamState>>({});
   const [confirmedOwners, setConfirmedOwners] = useState<string[]>([]);
   const [auctionStage, setAuctionStage] = useState(0);
@@ -462,6 +472,16 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
 
     if (nextTeam?.name && nextTeam.name !== currentUser) {
       setClubName(nextTeam.name);
+    }
+
+    if (nextTeam) {
+      setSelectionState({
+        POR: nextTeam.squad.find((item) => getPlayerGroup(item.Position) === "POR")?.ID || null,
+        DEF: nextTeam.squad.find((item) => getPlayerGroup(item.Position) === "DEF")?.ID || null,
+        MED: nextTeam.squad.find((item) => getPlayerGroup(item.Position) === "MED")?.ID || null,
+        EXT: nextTeam.squad.find((item) => getPlayerGroup(item.Position) === "EXT")?.ID || null,
+        DEL: nextTeam.squad.find((item) => getPlayerGroup(item.Position) === "DEL")?.ID || null,
+      });
     }
   }, [teams, currentUser]);
 
@@ -621,6 +641,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const pickInitialPlayer = (group: PositionGroup, player: Player) => {
     if (!currentTeam || hasConfirmed) return;
 
+    setSelectionState((currentSelectionState) => ({
+      ...currentSelectionState,
+      [group]: player.ID,
+    }));
+
     setTeams((currentTeams) => ({
       ...currentTeams,
       [currentUser]: {
@@ -635,6 +660,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
 
   const removeInitialPlayer = (group: PositionGroup) => {
     if (!currentTeam || hasConfirmed) return;
+
+    setSelectionState((currentSelectionState) => ({
+      ...currentSelectionState,
+      [group]: null,
+    }));
 
     setTeams((currentTeams) => ({
       ...currentTeams,
@@ -1016,9 +1046,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
 
         <div className="position-pick-grid">
           {groups.map((group) => {
-            const selectedId = teams[currentUser]?.squad.find(
-              (item) => getPlayerGroup(item.Position) === group
-            )?.ID;
+            const selectedId = selectionState[group];
 
             return (
               <div key={group} className="pick-group">
