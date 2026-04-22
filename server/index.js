@@ -10,7 +10,7 @@ app.use(cors());
 app.use(express.json());
 const PORT = Number(process.env.PORT) || 3000;
 
-const SERVER_VERSION = "render-ready-v1";
+const SERVER_VERSION = "render-ready-v2";
 
 const lobbies = new Map();
 const lobbyClients = new Map();
@@ -567,6 +567,18 @@ app.post("/drafts/:code/offers", (req, res) => {
     return res.status(400).json({ error: "No se puede ofertar por este jugador" });
   }
 
+  const existingPendingOffer = draft.offers.find(
+    (offer) =>
+      offer.from === from &&
+      offer.to === to &&
+      String(offer.player.ID) === String(playerId) &&
+      offer.status === "pending"
+  );
+
+  if (existingPendingOffer) {
+    return res.status(409).json({ error: "Ya se envio una oferta y sigue pendiente de respuesta" });
+  }
+
   draft.offers.unshift({
     id: `${playerId}-${Date.now()}`,
     from,
@@ -614,6 +626,30 @@ app.post("/drafts/:code/offers/:offerId", (req, res) => {
   }
 
   offer.status = decision;
+  sendDraftUpdate(code);
+  res.json(getDraftPayload(code));
+});
+
+app.post("/drafts/:code/start-season", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username } = req.body;
+  const draft = ensureDraft(code);
+  const lobby = lobbies.get(code);
+
+  if (!draft || !lobby) {
+    return res.status(404).json({ error: "Draft no encontrado" });
+  }
+
+  if (lobby.creator !== username) {
+    return res.status(403).json({ error: "Solo el organizador puede iniciar la liga" });
+  }
+
+  if (draft.phase !== "market") {
+    return res.status(400).json({ error: "El mercado no esta activo" });
+  }
+
+  draft.phase = "season";
+  draft.news.unshift("Liga UFL: el periodo de transferencias termino y la liga comenzo.");
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });

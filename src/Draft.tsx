@@ -4,7 +4,7 @@ const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replac
 
 type Tab = "Inicio" | "Club" | "Tabla de liga" | "Transferencia";
 type DraftPhase = "initial" | "auction" | "market";
-type ServerPhase = "selection" | "dashboard" | "auction" | "market";
+type ServerPhase = "selection" | "dashboard" | "auction" | "market" | "season";
 type PositionGroup = "POR" | "DEF" | "MED" | "EXT" | "DEL";
 
 type Player = {
@@ -50,6 +50,7 @@ type Offer = {
 };
 
 type Standing = {
+  key: string;
   name: string;
   real: boolean;
   champions: boolean;
@@ -327,6 +328,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         setPhase("market");
         setActiveTab("Transferencia");
       }
+
+      if (draft.phase === "season") {
+        setPhase("initial");
+        setActiveTab("Inicio");
+      }
     };
 
     events.onerror = () => {
@@ -410,6 +416,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
 
   const leagueTeams = useMemo(() => {
     const realTeams = players.map((player) => ({
+      key: player,
       name: teams[player]?.name || player,
       real: true,
     }));
@@ -418,7 +425,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       ? generatedClubNames
           .filter((name) => !realTeams.some((team) => team.name === name))
           .slice(0, Math.max(size - realTeams.length, 0))
-          .map((name) => ({ name, real: false }))
+          .map((name) => ({ key: name, name, real: false }))
       : [];
     const allTeams = [...realTeams, ...generated].slice(
       0,
@@ -433,23 +440,51 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   }, [players, settings.champions, settings.fillCpuTeams, settings.format, teams]);
 
   useEffect(() => {
-    if (leagueTeams.length === 0 || standings.length > 0) return;
+    if (leagueTeams.length === 0) return;
 
-    setStandings(
-      leagueTeams.map((team) => ({
-        name: team.name,
-        real: team.real,
-        champions: team.champions,
-        played: 0,
-        wins: 0,
-        draws: 0,
-        losses: 0,
-        gf: 0,
-        ga: 0,
-        pts: 0,
-      }))
-    );
-  }, [leagueTeams, standings.length]);
+    setStandings((currentStandings) => {
+      if (currentStandings.length === 0) {
+        return leagueTeams.map((team) => ({
+          key: team.key,
+          name: team.name,
+          real: team.real,
+          champions: team.champions,
+          played: 0,
+          wins: 0,
+          draws: 0,
+          losses: 0,
+          gf: 0,
+          ga: 0,
+          pts: 0,
+        }));
+      }
+
+      return leagueTeams.map((team) => {
+        const currentStanding = currentStandings.find((item) => item.key === team.key);
+
+        return currentStanding
+          ? {
+              ...currentStanding,
+              name: team.name,
+              real: team.real,
+              champions: team.champions,
+            }
+          : {
+              key: team.key,
+              name: team.name,
+              real: team.real,
+              champions: team.champions,
+              played: 0,
+              wins: 0,
+              draws: 0,
+              losses: 0,
+              gf: 0,
+              ga: 0,
+              pts: 0,
+            };
+      });
+    });
+  }, [leagueTeams]);
 
   const currentTeam = teams[currentUser];
   const hasConfirmed = confirmedOwners.includes(currentUser);
@@ -680,7 +715,23 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     });
 
     if (!res.ok) {
-      alert("No se pudo enviar la oferta");
+      const errorData = await res.json().catch(() => null);
+      alert(errorData?.error || "No se pudo enviar la oferta");
+    }
+  };
+
+  const finishTransferWindow = async () => {
+    const res = await fetch(`${API_URL}/drafts/${leagueCode}/start-season`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ username: currentUser }),
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => null);
+      alert(errorData?.error || "No se pudo iniciar la liga");
     }
   };
 
@@ -763,13 +814,13 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     const scorerRows = parseGoalRows(teamScorers);
     const rivalScorerRows = parseGoalRows(opponentScorers);
     const extraNews = [
-      `Liga UFL: ${currentUser} ${myGoals}-${rivalGoals} ${opponentName}`,
-      ...scorerRows.map((row) => `Liga UFL: ${row.name} anoto ${row.goals} gol(es) para ${currentUser}`),
+      `Liga UFL: ${currentTeam?.name || currentUser} ${myGoals}-${rivalGoals} ${opponentName}`,
+      ...scorerRows.map((row) => `Liga UFL: ${row.name} anoto ${row.goals} gol(es) para ${currentTeam?.name || currentUser}`),
       ...rivalScorerRows.map((row) => `Liga UFL: ${row.name} anoto ${row.goals} gol(es) para ${opponentName}`),
-      `Liga UFL: tarjetas ${currentUser} ${teamCards} - ${opponentCards} ${opponentName}`,
+      `Liga UFL: tarjetas ${currentTeam?.name || currentUser} ${teamCards} - ${opponentCards} ${opponentName}`,
     ];
 
-    applyMatchResult(currentUser, opponentName, myGoals, rivalGoals, extraNews);
+    applyMatchResult(currentTeam?.name || currentUser, opponentName, myGoals, rivalGoals, extraNews);
     setShowResultForm(false);
   };
 
@@ -1024,6 +1075,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
 
       {phase === "market" && (
         <>
+          {isOrganizer && (
+            <button className="btn btn-login compact-btn" onClick={finishTransferWindow}>
+              FINALIZAR PERIODO Y COMENZAR LIGA
+            </button>
+          )}
           <div className="offer-switch">
             <button className={offerView === "recibidas" ? "active" : ""} onClick={() => setOfferView("recibidas")}>
               Ofertas recibidas
@@ -1134,13 +1190,13 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
             <div className="form-grid">
               <label className="field">
                 <span>Tu equipo</span>
-                <input className="input" value={currentUser} disabled />
+                <input className="input" value={currentTeam?.name || currentUser} disabled />
               </label>
               <label className="field">
                 <span>Rival</span>
                 <select className="input" value={opponentName} onChange={(e) => setOpponentName(e.target.value)}>
                   <option value="">Selecciona</option>
-                  {standings.filter((team) => team.name !== currentUser).map((team) => (
+                  {standings.filter((team) => team.name !== (currentTeam?.name || currentUser)).map((team) => (
                     <option key={team.name}>{team.name}</option>
                   ))}
                 </select>
