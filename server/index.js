@@ -1,7 +1,7 @@
 const express = require("express");
 const cors = require("cors");
-const bcrypt = require("bcrypt");
-const sqlite3 = require("sqlite3").verbose();
+const bcrypt = require("bcryptjs");
+const fs = require("fs");
 const path = require("path");
 const { getPlayerById, getPlayers, loadPlayers } = require("./playerData");
 
@@ -10,12 +10,28 @@ app.use(cors());
 app.use(express.json());
 const PORT = Number(process.env.PORT) || 3000;
 
-const SERVER_VERSION = "auction-sync-v1";
+const SERVER_VERSION = "render-ready-v1";
 
 const lobbies = new Map();
 const lobbyClients = new Map();
 const drafts = new Map();
 const draftClients = new Map();
+const usersFilePath = path.join(__dirname, "users.json");
+
+const ensureUsersFile = () => {
+  if (!fs.existsSync(usersFilePath)) {
+    fs.writeFileSync(usersFilePath, "[]", "utf8");
+  }
+};
+
+const readUsers = () => {
+  ensureUsersFile();
+  return JSON.parse(fs.readFileSync(usersFilePath, "utf8"));
+};
+
+const writeUsers = (users) => {
+  fs.writeFileSync(usersFilePath, JSON.stringify(users, null, 2), "utf8");
+};
 
 const generateLobbyCode = () => {
   let code;
@@ -115,123 +131,90 @@ const ensureDraft = (code) => {
   return drafts.get(code);
 };
 
-// DB
-const db = new sqlite3.Database(path.join(__dirname, "users.db"));
-
 app.get("/health", (req, res) => {
   res.json({ ok: true, version: SERVER_VERSION });
 });
 
-// Crear tabla
-db.run(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE,
-    password TEXT
-  )
-`);
-
-// ==========================
-// 🔐 LOGIN
-// ==========================
-app.post("/login", (req, res) => {
+app.post("/login", async (req, res) => {
   const { username, password } = req.body;
+  const users = readUsers();
+  const user = users.find((item) => item.username === username);
 
-  db.get(
-    "SELECT * FROM users WHERE username = ?",
-    [username],
-    async (err, user) => {
-      if (!user) {
-        return res.status(400).json({ error: "Usuario no existe" });
-      }
+  if (!user) {
+    return res.status(400).json({ error: "Usuario no existe" });
+  }
 
-      const valid = await bcrypt.compare(password, user.password);
+  const valid = await bcrypt.compare(password, user.password);
 
-      if (!valid) {
-        return res.status(400).json({ error: "Contraseña incorrecta" });
-      }
+  if (!valid) {
+    return res.status(400).json({ error: "Contrasena incorrecta" });
+  }
 
-      res.json({ message: "Login exitoso", user: user.username });
-    }
-  );
+  res.json({ message: "Login exitoso", user: user.username });
 });
 
-// ==========================
-// ➕ CREAR USUARIO
-// ==========================
 app.post("/users", async (req, res) => {
   const { username, password } = req.body;
+  const users = readUsers();
+
+  if (!username || !password) {
+    return res.status(400).json({ error: "Faltan datos del usuario" });
+  }
+
+  if (users.some((item) => item.username === username)) {
+    return res.status(400).json({ error: "Usuario ya existe" });
+  }
 
   const hash = await bcrypt.hash(password, 10);
+  const nextId = users.length === 0 ? 1 : Math.max(...users.map((item) => item.id)) + 1;
 
-  db.run(
-    "INSERT INTO users (username, password) VALUES (?, ?)",
-    [username, hash],
-    function (err) {
-      if (err) {
-        return res.status(400).json({ error: "Usuario ya existe" });
-      }
-
-      res.json({ message: "Usuario creado", id: this.lastID });
-    }
-  );
+  users.push({ id: nextId, username, password: hash });
+  writeUsers(users);
+  res.json({ message: "Usuario creado", id: nextId });
 });
 
-// ==========================
-// 📋 OBTENER TODOS
-// ==========================
 app.get("/users", (req, res) => {
-  db.all("SELECT id, username FROM users", [], (err, rows) => {
-    res.json(rows);
-  });
+  const users = readUsers().map(({ id, username }) => ({ id, username }));
+  res.json(users);
 });
 
-// ==========================
-// ✏️ EDITAR USUARIO
-// ==========================
 app.put("/users/:id", async (req, res) => {
   const { id } = req.params;
   const { username, password } = req.body;
+  const users = readUsers();
+  const index = users.findIndex((item) => String(item.id) === String(id));
 
-  let query;
-  let params;
-
-  if (password) {
-    const hash = await bcrypt.hash(password, 10);
-    query = "UPDATE users SET username = ?, password = ? WHERE id = ?";
-    params = [username, hash, id];
-  } else {
-    query = "UPDATE users SET username = ? WHERE id = ?";
-    params = [username, id];
+  if (index === -1) {
+    return res.status(404).json({ error: "Usuario no encontrado" });
   }
 
-  db.run(query, params, function (err) {
-    if (err) {
-      return res.status(400).json({ error: "Error al actualizar" });
-    }
+  if (users.some((item, itemIndex) => item.username === username && itemIndex !== index)) {
+    return res.status(400).json({ error: "Usuario ya existe" });
+  }
 
-    res.json({ message: "Usuario actualizado" });
-  });
+  users[index].username = username;
+
+  if (password) {
+    users[index].password = await bcrypt.hash(password, 10);
+  }
+
+  writeUsers(users);
+  res.json({ message: "Usuario actualizado" });
 });
 
-// ==========================
-// ❌ ELIMINAR USUARIO
-// ==========================
 app.delete("/users/:id", (req, res) => {
   const { id } = req.params;
+  const users = readUsers();
+  const nextUsers = users.filter((item) => String(item.id) !== String(id));
 
-  db.run("DELETE FROM users WHERE id = ?", [id], function (err) {
-    if (err) {
-      return res.status(400).json({ error: "Error al eliminar" });
-    }
+  if (nextUsers.length === users.length) {
+    return res.status(404).json({ error: "Usuario no encontrado" });
+  }
 
-    res.json({ message: "Usuario eliminado" });
-  });
+  writeUsers(nextUsers);
+  res.json({ message: "Usuario eliminado" });
 });
 
-// ==========================
-// JUGADORES EAFC26
-// ==========================
 app.get("/players", (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 100, 2000);
   const search = String(req.query.search || "");
@@ -252,9 +235,6 @@ app.get("/players/:id", (req, res) => {
   res.json(player);
 });
 
-// ==========================
-// LOBBIES EN TIEMPO REAL
-// ==========================
 app.post("/lobbies", (req, res) => {
   const { leagueName, username } = req.body;
   const maxManagers = Number(req.body.managers) || 4;
@@ -674,9 +654,6 @@ app.get("/lobbies/:code/events", (req, res) => {
   });
 });
 
-// ==========================
-// 🚀 SERVIDOR
-// ==========================
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en http://localhost:${PORT}`);
 });
