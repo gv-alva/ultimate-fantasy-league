@@ -227,6 +227,29 @@ const pickOne = (items: Player[], used: Set<number>, offset: number) => {
   return sample(candidates, 1, offset)[0] || null;
 };
 
+const fillSlots = (
+  candidates: Player[],
+  used: Set<number>,
+  count: number,
+  offset: number
+) => {
+  const picked: Player[] = [];
+  const available = candidates.filter((player) => !used.has(player.ID));
+
+  while (picked.length < count && available.length > 0) {
+    const nextPlayer = sample(available, 1, offset + picked.length)[0];
+    if (!nextPlayer) break;
+    picked.push(nextPlayer);
+    used.add(nextPlayer.ID);
+    const nextIndex = available.findIndex((player) => player.ID === nextPlayer.ID);
+    if (nextIndex >= 0) {
+      available.splice(nextIndex, 1);
+    }
+  }
+
+  return picked;
+};
+
 const buildInitialPicks = (
   pool: Player[],
   owners: string[]
@@ -234,33 +257,52 @@ const buildInitialPicks = (
   const eligiblePool = pool.filter((player) => player.OVR >= 75);
   const used = new Set<number>();
   const nextPicks: Record<string, Record<PositionGroup, Player[]>> = {};
+  const ultraRarePlayer = pickOne(
+    eligiblePool.filter((player) => player.OVR > 88),
+    used,
+    7
+  );
+  const rarePlayers = fillSlots(
+    eligiblePool.filter((player) => player.OVR >= 86 && player.OVR <= 88),
+    used,
+    Math.max(1, Math.floor(owners.length / 2)),
+    13
+  );
+  const rareIds = new Set(rarePlayers.map((player) => player.ID));
 
   owners.forEach((owner, ownerIndex) => {
     nextPicks[owner] = {} as Record<PositionGroup, Player[]>;
 
-    const eliteCandidates = eligiblePool.filter((player) => player.OVR > 88 && !used.has(player.ID));
-    const eliteGroup = groups[(ownerIndex * 3) % groups.length];
-    const elitePlayer = pickOne(eliteCandidates, used, ownerIndex + 17);
-    let eliteAssigned = false;
-
     groups.forEach((group, groupIndex) => {
-      const groupCandidates = eligiblePool.filter(
+      const baseCandidates = eligiblePool.filter(
         (player) =>
           getPlayerGroup(player.Position) === group &&
           !used.has(player.ID) &&
-          (eliteAssigned || player.OVR <= 88 || group === eliteGroup)
+          player.OVR <= 85 &&
+          !rareIds.has(player.ID)
       );
+      const nextGroupPicks = fillSlots(baseCandidates, used, 3, ownerIndex + groupIndex);
+      const shouldInjectUltraRare =
+        ultraRarePlayer &&
+        ownerIndex === 0 &&
+        groupIndex === 0 &&
+        nextGroupPicks.length > 0;
+      const shouldInjectRare =
+        !shouldInjectUltraRare &&
+        rarePlayers.length > 0 &&
+        ((ownerIndex + groupIndex) % 3 === 0) &&
+        nextGroupPicks.length > 0;
 
-      const picks = sample(groupCandidates, 3, ownerIndex + groupIndex);
-      const nextGroupPicks = [...picks];
-
-      if (group === eliteGroup && elitePlayer) {
+      if (shouldInjectUltraRare) {
         nextGroupPicks.pop();
-        nextGroupPicks.unshift(elitePlayer);
-        eliteAssigned = true;
+        nextGroupPicks.unshift(ultraRarePlayer);
+      } else if (shouldInjectRare) {
+        const rarePlayer = rarePlayers.shift();
+        if (rarePlayer) {
+          nextGroupPicks.pop();
+          nextGroupPicks.unshift(rarePlayer);
+        }
       }
-
-      nextGroupPicks.forEach((player) => used.add(player.ID));
       nextPicks[owner][group] = nextGroupPicks;
     });
   });
@@ -275,7 +317,7 @@ const buildAuctionStages = (pool: Player[]) => {
   return Array.from({ length: 6 }, (_, stageIndex) => {
     const stagePlayers: Player[] = [];
     const eliteCandidate = pickOne(
-      eligiblePool.filter((player) => player.OVR >= 85),
+      eligiblePool.filter((player) => player.OVR >= 85 && player.OVR <= 88),
       used,
       stageIndex + 29
     );
@@ -285,12 +327,11 @@ const buildAuctionStages = (pool: Player[]) => {
       used.add(eliteCandidate.ID);
     }
 
-    const stageCandidates = eligiblePool.filter((player) => !used.has(player.ID));
-    const fillerPlayers = sample(stageCandidates, 10 - stagePlayers.length, stageIndex + 41);
-    fillerPlayers.forEach((player) => {
-      used.add(player.ID);
-      stagePlayers.push(player);
-    });
+    const stageCandidates = eligiblePool.filter(
+      (player) => !used.has(player.ID) && player.OVR <= 85
+    );
+    const fillerPlayers = fillSlots(stageCandidates, used, 10 - stagePlayers.length, stageIndex + 41);
+    stagePlayers.push(...fillerPlayers);
 
     return stagePlayers;
   });
@@ -975,13 +1016,15 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
 
         <div className="position-pick-grid">
           {groups.map((group) => {
-            const selected = currentTeam?.squad.find((item) => getPlayerGroup(item.Position) === group);
+            const selectedId = teams[currentUser]?.squad.find(
+              (item) => getPlayerGroup(item.Position) === group
+            )?.ID;
 
             return (
               <div key={group} className="pick-group">
                 <h3>{groupLabels[group]}</h3>
                 {(initialPicks[currentUser]?.[group] || []).map((player) => {
-                  const isSelected = selected?.ID === player.ID;
+                  const isSelected = selectedId === player.ID;
 
                   return renderPlayerCard(
                     player,

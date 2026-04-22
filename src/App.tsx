@@ -4,6 +4,8 @@ import Draft from "./Draft";
 import Lobby from "./Lobby";
 import logo from "./assets/logo.png";
 
+const APP_VERSION = "0.402";
+
 type LobbyData = {
   code: string;
   leagueName: string;
@@ -71,8 +73,6 @@ export default function App() {
   const [fillCpuTeams, setFillCpuTeams] = useState(true);
   const [format, setFormat] = useState("Normal");
   const [money, setMoney] = useState(100);
-  const [bidTime, setBidTime] = useState("60");
-  const [marketTime, setMarketTime] = useState("10");
 
   // lobby
   const [leagueCode, setLeagueCode] = useState("");
@@ -210,21 +210,10 @@ export default function App() {
 
   const createLeague = async () => {
     const managerCount = Number(managers);
-    const bidSeconds = Number(bidTime);
-    const marketMinutes = Number(marketTime);
-
     if (!leagueName) return alert("Pon nombre");
     if (!currentUser) return alert("Inicia sesion primero");
     if (!Number.isInteger(managerCount) || managerCount < 2 || managerCount > 20) {
       alert("El numero de jugadores debe estar entre 2 y 20");
-      return;
-    }
-    if (!Number.isInteger(bidSeconds) || bidSeconds < 15 || bidSeconds > 300) {
-      alert("El tiempo de puja debe estar entre 15 y 300 segundos");
-      return;
-    }
-    if (!Number.isInteger(marketMinutes) || marketMinutes < 1 || marketMinutes > 120) {
-      alert("El mercado debe durar entre 1 y 120 minutos");
       return;
     }
 
@@ -233,8 +222,8 @@ export default function App() {
       money,
       champions,
       fillCpuTeams,
-      bidTime: bidSeconds,
-      marketTime: marketMinutes,
+      bidTime: 60,
+      marketTime: 10,
     };
 
     let res: Response;
@@ -252,8 +241,8 @@ export default function App() {
           fillCpuTeams,
           format,
           money,
-          bidTime: bidSeconds,
-          marketTime: marketMinutes,
+          bidTime: 60,
+          marketTime: 10,
         }),
       });
     } catch (error) {
@@ -475,6 +464,8 @@ export default function App() {
       {/* ===== LOGIN ===== */}
       {screen === "login" && (
         <div className="bottom">
+          <div className="lobby-status">Version {APP_VERSION}</div>
+
           <input
             className="input"
             placeholder="Usuario"
@@ -615,30 +606,6 @@ export default function App() {
                 <option value={200}>200M</option>
                 <option value={300}>300M</option>
               </select>
-            </label>
-
-            <label className="field">
-              <span>Tiempo de puja por etapa (segundos)</span>
-              <input
-                className="input"
-                min={15}
-                max={300}
-                type="number"
-                value={bidTime}
-                onChange={(e) => setBidTime(e.target.value)}
-              />
-            </label>
-
-            <label className="field">
-              <span>Tiempo de mercado (minutos)</span>
-              <input
-                className="input"
-                min={1}
-                max={120}
-                type="number"
-                value={marketTime}
-                onChange={(e) => setMarketTime(e.target.value)}
-              />
             </label>
 
             <button className="btn btn-login" onClick={createLeague}>
