@@ -227,25 +227,40 @@ const pickOne = (items: Player[], used: Set<number>, offset: number) => {
   return sample(candidates, 1, offset)[0] || null;
 };
 
+const hashNumber = (value: number) => {
+  let hash = value >>> 0;
+  hash ^= hash << 13;
+  hash ^= hash >>> 17;
+  hash ^= hash << 5;
+  return hash >>> 0;
+};
+
 const getPlayerWeight = (player: Player) => {
   const overall = player.OVR;
 
   if (overall >= 95) return 1;
-  if (overall >= 92) return 2;
-  if (overall >= 89) return 3;
-  if (overall >= 86) return 5;
-  if (overall >= 83) return 10;
-  if (overall >= 80) return 18;
-  return 28;
+  if (overall >= 92) return 1;
+  if (overall >= 89) return 1;
+  if (overall >= 85) return 2;
+  if (overall >= 83) return 5;
+  if (overall >= 81) return 10;
+  if (overall >= 78) return 18;
+  return 30;
 };
 
 const weightedPick = (items: Player[], used: Set<number>, offset: number) => {
-  const candidates = items.filter((player) => !used.has(player.ID));
+  const candidates = items
+    .filter((player) => !used.has(player.ID))
+    .sort((leftPlayer, rightPlayer) => {
+      const leftHash = hashNumber(leftPlayer.ID + offset * 31);
+      const rightHash = hashNumber(rightPlayer.ID + offset * 31);
+      return leftHash - rightHash;
+    });
 
   if (candidates.length === 0) return null;
 
   const totalWeight = candidates.reduce((sum, player) => sum + getPlayerWeight(player), 0);
-  let target = (offset % Math.max(totalWeight, 1)) + 1;
+  let target = (hashNumber(offset * 997 + candidates.length * 17) % Math.max(totalWeight, 1)) + 1;
 
   for (const player of candidates) {
     target -= getPlayerWeight(player);
@@ -296,7 +311,8 @@ const buildInitialPicks = (
       const baseCandidates = eligiblePool.filter(
         (player) =>
           getPlayerGroup(player.Position) === group &&
-          !used.has(player.ID)
+          !used.has(player.ID) &&
+          player.OVR <= 84
       );
       const nextGroupPicks = fillSlots(baseCandidates, used, 3, ownerIndex + groupIndex);
       const shouldInjectUltraRare =
@@ -333,7 +349,7 @@ const buildAuctionStages = (pool: Player[]) => {
     }
 
     const stageCandidates = eligiblePool.filter(
-      (player) => !used.has(player.ID)
+      (player) => !used.has(player.ID) && player.OVR <= 84
     );
     const fillerPlayers = fillSlots(stageCandidates, used, 10 - stagePlayers.length, stageIndex + 41);
     stagePlayers.push(...fillerPlayers);
