@@ -24,6 +24,8 @@ type Player = {
   marketValue: number;
   minBid: number;
   salary: number;
+  salaryMin?: number;
+  salaryMax?: number;
   releaseValue?: number;
   card?: string;
   [key: string]: string | number | boolean | null | undefined;
@@ -52,6 +54,14 @@ type Offer = {
   amount: number;
   salary?: number;
   status: "pending" | "accepted" | "rejected";
+};
+
+type PendingSigning = {
+  id: string;
+  owner: string;
+  type: "auction";
+  player: Player;
+  amount: number;
 };
 
 type Standing = {
@@ -98,6 +108,7 @@ type DraftEvent = {
   bidCounts: Record<string, number>;
   teams: Record<string, TeamState>;
   offers: Offer[];
+  pendingSignings: PendingSigning[];
   news: string[];
 };
 
@@ -178,6 +189,7 @@ const getPlayerGroup = (position = ""): PositionGroup => {
 
 const money = (value: number) => `${Math.round(value * 10) / 10}M`;
 const salary = (value: number) => `${Math.round(value)}k`;
+const salaryRange = (player: Player) => `${salary(player.salaryMin || player.salary)} a ${salary(player.salaryMax || player.salary)}`;
 
 const getNewsAuthor = (item: string) =>
   item.startsWith("Fabrizio Romano") ? "Fabrizio Romano" : "Liga UFL";
@@ -453,6 +465,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [news, setNews] = useState<string[]>([]);
   const [offerView, setOfferView] = useState<"recibidas" | "enviadas">("recibidas");
   const [offers, setOffers] = useState<Offer[]>([]);
+  const [pendingSignings, setPendingSignings] = useState<PendingSigning[]>([]);
   const [matchesPlayed, setMatchesPlayed] = useState(0);
   const [standings, setStandings] = useState<Standing[]>([]);
   const [showResultForm, setShowResultForm] = useState(false);
@@ -509,6 +522,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         return nextTeams;
       });
       setOffers(draft.offers || []);
+      setPendingSignings(draft.pendingSignings || []);
       setNews(draft.news || []);
 
       if (draft.phase === "dashboard") {
@@ -703,6 +717,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const pendingReceived = offers.filter(
     (offer) => offer.to === currentUser && offer.status === "pending"
   ).length;
+  const myPendingSignings = pendingSignings.filter((signing) => signing.owner === currentUser);
   const currentPayroll =
     currentTeam?.salaryUsed ??
     currentTeam?.squad.reduce((sum, player) => sum + (Number(player.salary) || 0), 0) ??
@@ -714,6 +729,54 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     if (!owner) return "Agente libre";
     if (owner === currentUser) return "Tu club";
     return `Club: ${teams[owner]?.name || owner}`;
+  };
+
+  const negotiateSalaryWithPlayer = async (
+    player: Player,
+    transferAmount = 0,
+    mode: "buy" | "offer" | "auction" = "buy"
+  ) => {
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const offerText = window.prompt(
+        `${player.Name} quiere escuchar tu propuesta. Sueldo aproximado por temporada entre ${salaryRange(player)}. Intento ${attempt}/3`
+      );
+
+      if (!offerText) return false;
+
+      const offeredSalary = Number(offerText);
+
+      if (Number.isNaN(offeredSalary) || offeredSalary <= 0) {
+        alert("Escribe un salario valido");
+        continue;
+      }
+
+      const response = await fetch(`${API_URL}/drafts/${leagueCode}/negotiate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username: currentUser,
+          playerId: player.ID,
+          amount: transferAmount,
+          salary: offeredSalary,
+          mode,
+        }),
+      });
+
+      if (response.ok) {
+        return true;
+      }
+
+      const errorData = await response.json().catch(() => null);
+      alert(errorData?.error || "No se pudo cerrar la negociacion");
+
+      if (!errorData?.attemptsLeft) {
+        return false;
+      }
+    }
+
+    return false;
   };
 
   const pickInitialPlayer = (group: PositionGroup, player: Player) => {
@@ -874,37 +937,8 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       alert("Tu plantilla ya llego al limite de 18 jugadores");
       return;
     }
-
-    const salaryText = window.prompt(
-      `Sueldo aproximado de ${player.Name}: ${salary(player.salary)} por semana. Tienes 3 intentos para convencerlo.`
-    );
-    const offeredSalary = Number(salaryText);
-
-    if (!salaryText) return;
-    if (Number.isNaN(offeredSalary) || offeredSalary <= 0) {
-      alert("Escribe un salario valido");
-      return;
-    }
-
-    const res = await fetch(`${API_URL}/drafts/${leagueCode}/negotiate`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        username: currentUser,
-        playerId: player.ID,
-        salary: offeredSalary,
-      }),
-    });
-
-    if (!res.ok) {
-      const errorData = await res.json().catch(() => null);
-      alert(errorData?.error || "No se pudo comprar este jugador");
-      return;
-    }
-
-    setSelectedPlayer(null);
+    const success = await negotiateSalaryWithPlayer(player, 0, "buy");
+    if (success) setSelectedPlayer(null);
   };
 
   const releasePlayer = async (player: Player) => {
@@ -928,38 +962,14 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
 
     const amountText = window.prompt("Escribe tu oferta en millones:");
     const amount = Number(amountText);
-    const salaryText = window.prompt(
-      `Sueldo aproximado de ${player.Name}: ${salary(player.salary)} por semana. Tienes 3 intentos para convencerlo.`
-    );
-    const offeredSalary = Number(salaryText);
 
-    if (!amountText || !salaryText) return;
+    if (!amountText) return;
     if (!currentTeam || amount <= 0 || amount > currentTeam.budget) {
       alert("Oferta invalida o sin presupuesto");
       return;
     }
-    if (Number.isNaN(offeredSalary) || offeredSalary <= 0) {
-      alert("Escribe un salario valido");
-      return;
-    }
-
-    const res = await fetch(`${API_URL}/drafts/${leagueCode}/negotiate`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        username: currentUser,
-        playerId: player.ID,
-        amount,
-        salary: offeredSalary,
-      }),
-    });
-
-    if (!res.ok) {
-      const errorData = await res.json().catch(() => null);
-      alert(errorData?.error || "No se pudo enviar la oferta");
-    }
+    const success = await negotiateSalaryWithPlayer(player, amount, "offer");
+    if (!success) return;
   };
 
   const finishTransferWindow = async () => {
@@ -1097,7 +1107,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         <span>{player.Position} | GLB {player.OVR}</span>
         <span>{getPlayerStatusLabel(player)}</span>
         <small>Valor: {money(player.marketValue)}</small>
-        <small>Sueldo aprox: {salary(player.salary)}</small>
+        <small>Sueldo aprox temporada: {salaryRange(player)}</small>
       </div>
       {action}
     </article>
@@ -1227,7 +1237,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     <section className="draft-panel">
       <h2>Club</h2>
       <p>
-        {currentTeam?.name || currentUser} | Presupuesto: {money(currentTeam?.budget || 0)} | Nomina:{" "}
+        {currentTeam?.name || currentUser} | Presupuesto: {money(currentTeam?.budget || 0)} | Masa salarial:{" "}
         {salary(currentPayroll)}/{salary(currentTeam?.salaryCap || settings.salaryCap)} | Plantilla:{" "}
         {currentTeam?.squad.length || 0}/18
       </p>
@@ -1285,13 +1295,33 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
           <h2>{phase === "auction" ? `Subasta etapa ${auctionStage + 1}/6` : "Transferencias"}</h2>
           <p>
             {phase === "auction"
-              ? "El organizador controla el paso entre etapas y la calidad ahora esta mas repartida."
+                ? "El organizador controla el paso entre etapas y la calidad ahora esta mas repartida."
               : transferWindowOpen
-                ? `Ventana de mercado disponible | No puedes pasar de 18 jugadores ni de ${salary(settings.salaryCap)} semanales`
+                ? `Ventana de mercado disponible | No puedes pasar de 18 jugadores ni de ${salary(settings.salaryCap)} por temporada`
                 : `Mercado cerrado hasta la mitad de temporada (${midSeasonMatch})`}
           </p>
         </div>
       </div>
+
+      {myPendingSignings.length > 0 && (
+        <div className="offers-panel">
+          {myPendingSignings.map((signing) => (
+            <div key={signing.id} className="offer-card">
+              <strong>{signing.player.Name}</strong>
+              <span>Ganaste la subasta por {money(signing.amount)}</span>
+              <small>Sueldo aprox por temporada: {salaryRange(signing.player)}</small>
+              <div className="offer-actions">
+                <button
+                  className="small-action"
+                  onClick={() => negotiateSalaryWithPlayer(signing.player, signing.amount, "auction")}
+                >
+                  NEGOCIAR SUELDO
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {phase === "auction" && (
         <>
@@ -1344,7 +1374,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                 <strong>{offer.player.Name}</strong>
                 <span>{offer.from} {"->"} {offer.to}</span>
                 <small>
-                  {money(offer.amount)} | sueldo {salary(offer.salary || offer.player.salary)} | {offer.status}
+                  {money(offer.amount)} | sueldo {salary(offer.salary || offer.player.salary)} por temporada | {offer.status}
                 </small>
                 {offerView === "recibidas" && offer.status === "pending" && (
                   <div className="offer-actions">
@@ -1530,7 +1560,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                 <strong>{selectedPlayer.OVR}</strong>
                 <p>
                   Valor mercado: {money(selectedPlayer.marketValue)} | Puja minima: {money(selectedPlayer.minBid)} |
-                  Sueldo aprox: {salary(selectedPlayer.salary)}
+                  Sueldo aprox por temporada: {salaryRange(selectedPlayer)}
                 </p>
               </div>
             </div>

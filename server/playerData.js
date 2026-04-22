@@ -63,20 +63,26 @@ const getMarketValue = (overall) => {
   return Math.round(value * 10) / 10;
 };
 
-const getWeeklySalary = (overall) => {
+const getSeasonSalary = (overall) => {
   const ovr = Number(overall) || 50;
   let salary;
 
-  if (ovr >= 95) salary = 230 + (ovr - 95) * 22;
-  else if (ovr >= 91) salary = 160 + (ovr - 91) * 18;
-  else if (ovr >= 88) salary = 110 + (ovr - 88) * 16;
-  else if (ovr >= 85) salary = 72 + (ovr - 85) * 11;
-  else if (ovr >= 82) salary = 42 + (ovr - 82) * 8;
-  else if (ovr >= 78) salary = 20 + (ovr - 78) * 5;
-  else if (ovr >= 75) salary = 9 + (ovr - 75) * 3;
-  else salary = Math.max(4, 4 + (ovr - 70) * 1.2);
+  if (ovr >= 95) salary = 240 + (ovr - 95) * 20;
+  else if (ovr >= 91) salary = 170 + (ovr - 91) * 18;
+  else if (ovr >= 88) salary = 120 + (ovr - 88) * 16;
+  else if (ovr >= 85) salary = 85 + (ovr - 85) * 11;
+  else if (ovr >= 82) salary = 58 + (ovr - 82) * 8;
+  else if (ovr >= 78) salary = 32 + (ovr - 78) * 5;
+  else if (ovr >= 75) salary = 18 + (ovr - 75) * 4;
+  else salary = Math.max(10, 10 + (ovr - 70) * 2);
 
   return Math.round(salary);
+};
+
+const getSalaryRange = (salary) => {
+  const min = Math.max(10, Math.round(salary * 0.65));
+  const max = Math.max(min + 10, Math.round(salary * 1.35));
+  return { min, max };
 };
 
 const getReleaseValue = (marketValue) => {
@@ -85,7 +91,8 @@ const getReleaseValue = (marketValue) => {
 
 const enrichPlayer = (player) => {
   const marketValue = getMarketValue(player.OVR);
-  const salary = getWeeklySalary(player.OVR);
+  const salary = getSeasonSalary(player.OVR);
+  const salaryRange = getSalaryRange(salary);
 
   return {
     ...player,
@@ -94,6 +101,8 @@ const enrichPlayer = (player) => {
     marketValue,
     minBid: Math.round((marketValue / 2) * 10) / 10,
     salary,
+    salaryMin: salaryRange.min,
+    salaryMax: salaryRange.max,
     releaseValue: getReleaseValue(marketValue),
     isFreeAgent: true,
   };

@@ -10,7 +10,7 @@ app.use(cors());
 app.use(express.json());
 const PORT = Number(process.env.PORT) || 3000;
 
-const SERVER_VERSION = "v0.500";
+const SERVER_VERSION = "v0.501";
 const TEAM_SIZE_TARGET = 18;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -64,6 +64,10 @@ const getTeamPayload = (team) => ({
   salaryUsed: getTeamPayroll(team),
 });
 
+const getPendingSigningPayload = (signing) => ({
+  ...signing,
+});
+
 const findPlayerOwner = (draft, playerId) =>
   Object.keys(draft.teams).find((owner) =>
     draft.teams[owner].squad.some((player) => String(player.ID) === String(playerId))
@@ -90,10 +94,11 @@ const canAddPlayerToTeam = (team, player, salary = player.salary, amount = playe
 const getNegotiationKey = (username, playerId) => `${username}:${playerId}`;
 
 const getNegotiationTarget = (code, username, player) => {
-  const baseSalary = Number(player.salary) || 10;
+  const minSalary = Number(player.salaryMin) || Number(player.salary) || 10;
+  const maxSalary = Number(player.salaryMax) || Math.max(minSalary + 10, Number(player.salary) || 20);
   const seed = hashString(`${code}:${username}:${player.ID}`);
-  const multiplier = 0.82 + ((seed % 55) / 100);
-  return Math.max(baseSalary, Math.round(baseSalary * multiplier));
+  const spread = Math.max(1, maxSalary - minSalary + 1);
+  return minSalary + (seed % spread);
 };
 
 const getAvailablePlayers = (draft) => {
@@ -195,6 +200,7 @@ const getDraftPayload = (code) => {
       Object.entries(draft.teams).map(([owner, team]) => [owner, getTeamPayload(team)])
     ),
     offers: draft.offers,
+    pendingSignings: (draft.pendingSignings || []).map(getPendingSigningPayload),
     news: draft.news,
   };
 };
@@ -233,6 +239,7 @@ const ensureDraft = (code) => {
       bidCounts: {},
       teams,
       offers: [],
+      pendingSignings: [],
       negotiations: {},
       news: ["Seleccion principal iniciada"],
     });
@@ -601,12 +608,18 @@ app.post("/drafts/:code/next-stage", (req, res) => {
       player &&
       team &&
       !team.squad.some((item) => item.ID === player.ID) &&
-      canAddPlayerToTeam(team, player, player.salary, winner.amount)
+      team.squad.length < TEAM_SIZE_TARGET
     ) {
-      team.squad.push(clonePlayerForTeam(player, player.salary));
-      team.budget -= Number(winner.amount) || 0;
+      draft.pendingSignings.unshift({
+        id: `auction-${winner.playerId}-${Date.now()}-${winner.owner}`,
+        owner: winner.owner,
+        type: "auction",
+        player,
+        amount: Number(winner.amount) || 0,
+      });
+      draft.news.unshift(`Liga UFL: ${team.name} debe negociar el sueldo de ${winner.playerName} para cerrar el fichaje`);
     } else if (team) {
-      draft.news.unshift(`Liga UFL: ${team.name} no pudo cerrar a ${winner.playerName} por limite salarial o plantilla`);
+      draft.news.unshift(`Liga UFL: ${team.name} no pudo cerrar a ${winner.playerName} por limite de plantilla`);
     }
   });
 
@@ -637,10 +650,13 @@ app.post("/drafts/:code/negotiate", (req, res) => {
   const player = getPlayerById(playerId);
   const team = draft.teams[username];
   const owner = findPlayerOwner(draft, playerId);
+  const pendingSigning = (draft.pendingSignings || []).find(
+    (signing) => signing.owner === username && String(signing.player.ID) === String(playerId)
+  );
   const targetSalary = getNegotiationTarget(code, username, player || {});
   const negotiationKey = getNegotiationKey(username, playerId);
   const offeredSalary = Number(salary) || 0;
-  const transferAmount = Number(amount) || 0;
+  const transferAmount = pendingSigning ? Number(pendingSigning.amount) || 0 : Number(amount) || 0;
 
   if (!player || !team) {
     return res.status(400).json({ error: "No se puede negociar este jugador" });
@@ -685,6 +701,21 @@ app.post("/drafts/:code/negotiate", (req, res) => {
   }
 
   delete draft.negotiations[negotiationKey];
+
+  if (pendingSigning) {
+    if (!canAddPlayerToTeam(team, player, offeredSalary, transferAmount)) {
+      return res.status(400).json({ error: "No puedes cerrar este contrato por presupuesto, masa salarial o plantilla" });
+    }
+
+    team.budget -= transferAmount;
+    team.squad.push(clonePlayerForTeam(player, offeredSalary));
+    draft.pendingSignings = draft.pendingSignings.filter((signing) => signing.id !== pendingSigning.id);
+    draft.news.unshift(
+      `Fabrizio Romano: ${team.name} cerro a ${player.Name} tras ganar la subasta, sueldo ${offeredSalary}k por temporada`
+    );
+    sendDraftUpdate(code);
+    return res.json({ mode: "auction", ...getDraftPayload(code) });
+  }
 
   if (!owner) {
     if (!canAddPlayerToTeam(team, player, offeredSalary, player.marketValue)) {
@@ -887,6 +918,10 @@ app.post("/drafts/:code/start-season", (req, res) => {
 
   if (draft.phase !== "market") {
     return res.status(400).json({ error: "El mercado no esta activo" });
+  }
+
+  if ((draft.pendingSignings || []).length > 0) {
+    return res.status(400).json({ error: "Todavia hay fichajes de subasta pendientes por negociar" });
   }
 
   Object.keys(draft.teams).forEach((owner) => {
