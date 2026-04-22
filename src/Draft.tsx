@@ -36,7 +36,7 @@ type TeamState = {
   owner: string;
   name: string;
   budget: number;
-  sponsor: Sponsor;
+  sponsor?: Sponsor;
   squad: Player[];
 };
 
@@ -220,6 +220,48 @@ const parseGoalRows = (rawText: string) =>
       };
     });
 
+const buildInitialPicks = (
+  pool: Player[],
+  owners: string[]
+): Record<string, Record<PositionGroup, Player[]>> => {
+  const used = new Set<number>();
+  const nextPicks: Record<string, Record<PositionGroup, Player[]>> = {};
+
+  owners.forEach((owner, ownerIndex) => {
+    nextPicks[owner] = {} as Record<PositionGroup, Player[]>;
+
+    groups.forEach((group, groupIndex) => {
+      const candidates = pool.filter(
+        (player) => getPlayerGroup(player.Position) === group && !used.has(player.ID)
+      );
+      const picks = sample(candidates, 3, ownerIndex + groupIndex);
+      picks.forEach((player) => used.add(player.ID));
+      nextPicks[owner][group] = picks;
+    });
+  });
+
+  return nextPicks;
+};
+
+const decorateTeams = (
+  nextTeams: Record<string, TeamState>,
+  owners: string[],
+  moneyBudget: number
+) =>
+  owners.reduce<Record<string, TeamState>>((acc, owner, ownerIndex) => {
+    const currentTeam = nextTeams[owner];
+
+    acc[owner] = {
+      owner,
+      name: currentTeam?.name || owner,
+      budget: currentTeam?.budget ?? moneyBudget,
+      sponsor: currentTeam?.sponsor || createSponsor(owner, ownerIndex),
+      squad: currentTeam?.squad || [],
+    };
+
+    return acc;
+  }, {});
+
 export default function Draft({ leagueCode, players, currentUser, settings, onLogout }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("Inicio");
   const [phase, setPhase] = useState<DraftPhase>("initial");
@@ -265,7 +307,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       setConfirmedOwners(draft.confirmedOwners || []);
       setAuctionStage(draft.auctionStage || 0);
       setBidCounts(draft.bidCounts || {});
-      setTeams(draft.teams || {});
+      setTeams(decorateTeams(draft.teams || {}, players, settings.money));
       setOffers(draft.offers || []);
       setNews(draft.news || []);
 
@@ -302,35 +344,18 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   }, []);
 
   useEffect(() => {
-    if (pool.length === 0 || players.length === 0 || Object.keys(teams).length > 0) return;
+    if (pool.length === 0 || players.length === 0) return;
 
-    const used = new Set<number>();
-    const nextPicks: Record<string, Record<PositionGroup, Player[]>> = {};
-    const nextTeams: Record<string, TeamState> = {};
+    setInitialPicks((currentInitialPicks) => {
+      if (players.every((owner) => currentInitialPicks[owner])) {
+        return currentInitialPicks;
+      }
 
-    players.forEach((owner, ownerIndex) => {
-      nextPicks[owner] = {} as Record<PositionGroup, Player[]>;
-      groups.forEach((group, groupIndex) => {
-        const candidates = pool.filter(
-          (player) => getPlayerGroup(player.Position) === group && !used.has(player.ID)
-        );
-        const picks = sample(candidates, 3, ownerIndex + groupIndex);
-        picks.forEach((player) => used.add(player.ID));
-        nextPicks[owner][group] = picks;
-      });
-
-      nextTeams[owner] = {
-        owner,
-        name: owner,
-        budget: settings.money,
-        sponsor: createSponsor(owner, ownerIndex),
-        squad: [],
-      };
+      return buildInitialPicks(pool, players);
     });
 
-    setInitialPicks(nextPicks);
-    setTeams(nextTeams);
-  }, [pool, players, settings.money, teams]);
+    setTeams((currentTeams) => decorateTeams(currentTeams, players, settings.money));
+  }, [pool, players, settings.money]);
 
   useEffect(() => {
     const query = search.trim();
@@ -765,7 +790,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   );
 
   const renderSponsor = () => (
-    currentTeam && (
+    currentTeam?.sponsor && (
       <div className="sponsor-card">
         <h3>Patrocinador: {currentTeam.sponsor.name}</h3>
         <div className="sponsor-grid">
