@@ -13,6 +13,7 @@ type LobbyData = {
   format?: string;
   money?: number;
   champions?: boolean;
+  fillCpuTeams?: boolean;
   bidTime?: number;
   marketTime?: number;
   players: string[];
@@ -23,8 +24,17 @@ type LeagueSettings = {
   format: string;
   money: number;
   champions: boolean;
+  fillCpuTeams: boolean;
   bidTime: number;
   marketTime: number;
+};
+
+type SavedLeague = {
+  code: string;
+  leagueName: string;
+  creator: string;
+  status: "waiting" | "started";
+  updatedAt: number;
 };
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
@@ -40,9 +50,12 @@ const getLeagueSettings = (
   format: lobby.format || fallback.format,
   money: lobby.money || fallback.money,
   champions: lobby.champions ?? fallback.champions,
+  fillCpuTeams: lobby.fillCpuTeams ?? fallback.fillCpuTeams,
   bidTime: lobby.bidTime || fallback.bidTime,
   marketTime: lobby.marketTime || fallback.marketTime,
 });
+
+const getSavedLeaguesKey = (user: string) => `ufl-saved-leagues:${user}`;
 
 export default function App() {
   const [screen, setScreen] = useState("home");
@@ -55,6 +68,7 @@ export default function App() {
   const [leagueName, setLeagueName] = useState("");
   const [managers, setManagers] = useState("4");
   const [champions, setChampions] = useState(false);
+  const [fillCpuTeams, setFillCpuTeams] = useState(true);
   const [format, setFormat] = useState("Normal");
   const [money, setMoney] = useState(100);
   const [bidTime, setBidTime] = useState("60");
@@ -67,13 +81,49 @@ export default function App() {
   const [lobbyCreator, setLobbyCreator] = useState("");
   const [lobbyMaxManagers, setLobbyMaxManagers] = useState(4);
   const [lobbyStatus, setLobbyStatus] = useState<"waiting" | "started">("waiting");
+  const [savedLeagues, setSavedLeagues] = useState<SavedLeague[]>([]);
   const [leagueSettings, setLeagueSettings] = useState<LeagueSettings>({
     format: "Normal",
     money: 100,
     champions: false,
+    fillCpuTeams: true,
     bidTime: 60,
     marketTime: 10,
   });
+
+  const persistLeague = (league: SavedLeague) => {
+    if (!currentUser) return;
+
+    setSavedLeagues((currentLeagues) => {
+      const nextLeagues = [
+        league,
+        ...currentLeagues.filter((item) => item.code !== league.code),
+      ].sort((a, b) => b.updatedAt - a.updatedAt);
+
+      localStorage.setItem(getSavedLeaguesKey(currentUser), JSON.stringify(nextLeagues));
+      return nextLeagues;
+    });
+  };
+
+  const removeSavedLeague = (code: string) => {
+    if (!currentUser) return;
+
+    setSavedLeagues((currentLeagues) => {
+      const nextLeagues = currentLeagues.filter((item) => item.code !== code);
+      localStorage.setItem(getSavedLeaguesKey(currentUser), JSON.stringify(nextLeagues));
+      return nextLeagues;
+    });
+  };
+
+  useEffect(() => {
+    if (!currentUser) {
+      setSavedLeagues([]);
+      return;
+    }
+
+    const stored = localStorage.getItem(getSavedLeaguesKey(currentUser));
+    setSavedLeagues(stored ? JSON.parse(stored) : []);
+  }, [currentUser]);
 
   useEffect(() => {
     if (screen !== "lobby" || !leagueCode) return;
@@ -88,6 +138,13 @@ export default function App() {
       setLobbyMaxManagers((currentMaxManagers) => nextMaxManagers || currentMaxManagers);
       setLobbyStatus(lobby.status || "waiting");
       setLeagueSettings((currentSettings) => getLeagueSettings(lobby, currentSettings));
+      persistLeague({
+        code: lobby.code,
+        leagueName: lobby.leagueName,
+        creator: lobby.creator || lobbyCreator || currentUser,
+        status: lobby.status || "waiting",
+        updatedAt: Date.now(),
+      });
     };
 
     events.onerror = () => {
@@ -97,7 +154,7 @@ export default function App() {
     return () => {
       events.close();
     };
-  }, [screen, leagueCode]);
+  }, [screen, leagueCode, currentUser, lobbyCreator]);
 
   useEffect(() => {
     if (screen === "lobby" && lobbyStatus === "started") {
@@ -140,13 +197,14 @@ export default function App() {
     setLobbyCreator("");
     setLobbyMaxManagers(4);
     setLobbyStatus("waiting");
-    setLeagueSettings({
-      format: "Normal",
-      money: 100,
-      champions: false,
-      bidTime: 60,
-      marketTime: 10,
-    });
+      setLeagueSettings({
+        format: "Normal",
+        money: 100,
+        champions: false,
+        fillCpuTeams: true,
+        bidTime: 60,
+        marketTime: 10,
+      });
     setScreen("login");
   };
 
@@ -174,6 +232,7 @@ export default function App() {
       format,
       money,
       champions,
+      fillCpuTeams,
       bidTime: bidSeconds,
       marketTime: marketMinutes,
     };
@@ -190,6 +249,7 @@ export default function App() {
           username: currentUser,
           managers: managerCount,
           champions,
+          fillCpuTeams,
           format,
           money,
           bidTime: bidSeconds,
@@ -214,6 +274,13 @@ export default function App() {
     setLobbyMaxManagers(getLobbyMaxManagers(lobby) || managerCount);
     setLobbyStatus(lobby.status || "waiting");
     setLeagueSettings(getLeagueSettings(lobby, nextSettings));
+    persistLeague({
+      code: lobby.code,
+      leagueName: lobby.leagueName,
+      creator: lobby.creator || currentUser,
+      status: lobby.status || "waiting",
+      updatedAt: Date.now(),
+    });
     setScreen("lobby");
   };
 
@@ -263,6 +330,13 @@ export default function App() {
     setLobbyMaxManagers((currentMaxManagers) => nextMaxManagers || currentMaxManagers);
     setLobbyStatus(lobby.status || "waiting");
     setLeagueSettings((currentSettings) => getLeagueSettings(lobby, currentSettings));
+    persistLeague({
+      code: lobby.code,
+      leagueName: lobby.leagueName,
+      creator: lobby.creator || "",
+      status: lobby.status || "waiting",
+      updatedAt: Date.now(),
+    });
     setScreen("lobby");
   };
 
@@ -293,6 +367,69 @@ export default function App() {
     setLobbyMaxManagers((currentMaxManagers) => nextMaxManagers || currentMaxManagers);
     setLobbyStatus(lobby.status || "started");
     setLeagueSettings((currentSettings) => getLeagueSettings(lobby, currentSettings));
+    persistLeague({
+      code: lobby.code,
+      leagueName: lobby.leagueName,
+      creator: lobby.creator || lobbyCreator || currentUser,
+      status: lobby.status || "started",
+      updatedAt: Date.now(),
+    });
+  };
+
+  const continueLeague = async (savedLeague: SavedLeague) => {
+    try {
+      const res = await fetch(`${API_URL}/lobbies/${savedLeague.code}`);
+
+      if (!res.ok) {
+        removeSavedLeague(savedLeague.code);
+        alert("La liga ya no esta disponible");
+        return;
+      }
+
+      const lobby: LobbyData = await res.json();
+      const nextMaxManagers = getLobbyMaxManagers(lobby);
+      setLeagueCode(lobby.code);
+      setPlayers(lobby.players);
+      setLobbyCreator(lobby.creator || "");
+      setLobbyMaxManagers(nextMaxManagers || 4);
+      setLobbyStatus(lobby.status || "waiting");
+      setLeagueSettings((currentSettings) => getLeagueSettings(lobby, currentSettings));
+      persistLeague({
+        code: lobby.code,
+        leagueName: lobby.leagueName,
+        creator: lobby.creator || "",
+        status: lobby.status || "waiting",
+        updatedAt: Date.now(),
+      });
+      setScreen((lobby.status || "waiting") === "started" ? "draft" : "lobby");
+    } catch (error) {
+      alert("No se pudo cargar la liga");
+      console.error(error);
+    }
+  };
+
+  const deleteLeague = async (savedLeague: SavedLeague) => {
+    if (savedLeague.creator !== currentUser) return;
+
+    try {
+      const res = await fetch(`${API_URL}/lobbies/${savedLeague.code}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ username: currentUser }),
+      });
+
+      if (!res.ok) {
+        alert("No se pudo eliminar la liga");
+        return;
+      }
+
+      removeSavedLeague(savedLeague.code);
+    } catch (error) {
+      alert("No se pudo eliminar la liga");
+      console.error(error);
+    }
   };
 
   if (screen === "draft") {
@@ -387,7 +524,7 @@ export default function App() {
             Unirme a Liga
           </button>
 
-          <button className="btn btn-outline">
+          <button className="btn btn-outline" onClick={() => setScreen("continue")}>
             Continuar Liga
           </button>
         </div>
@@ -434,6 +571,20 @@ export default function App() {
               <div
                 className={`switch ${champions ? "active" : ""}`}
                 onClick={() => setChampions(!champions)}
+              >
+                <div className="switch-circle"></div>
+              </div>
+            </div>
+
+            <div className="switch-container">
+              <div>
+                <strong>Rellenar equipos aleatorios</strong>
+                <small>Agregar clubes CPU a la tabla</small>
+              </div>
+
+              <div
+                className={`switch ${fillCpuTeams ? "active" : ""}`}
+                onClick={() => setFillCpuTeams(!fillCpuTeams)}
               >
                 <div className="switch-circle"></div>
               </div>
@@ -501,6 +652,51 @@ export default function App() {
               VOLVER
             </button>
 
+          </div>
+        </div>
+      )}
+
+      {screen === "continue" && (
+        <div className="overlay">
+          <div className="overlay-card create-card">
+            <div className="form-header">
+              <span className="form-kicker">Continuar liga</span>
+              <h2>Tus ligas guardadas</h2>
+            </div>
+
+            {savedLeagues.length === 0 && (
+              <div className="lobby-empty">No tienes ligas guardadas todavia.</div>
+            )}
+
+            <div className="lobby-list">
+              {savedLeagues.map((savedLeague) => (
+                <div key={savedLeague.code} className="lobby-player">
+                  <div>
+                    <span>{savedLeague.leagueName}</span>
+                    <small>
+                      {savedLeague.code} | {savedLeague.status === "started" ? "Iniciada" : "Esperando"}
+                    </small>
+                  </div>
+                  <div className="continue-actions">
+                    <button className="small-action" onClick={() => continueLeague(savedLeague)}>
+                      Continuar
+                    </button>
+                    {savedLeague.creator === currentUser && (
+                      <button className="small-action danger" onClick={() => deleteLeague(savedLeague)}>
+                        Eliminar
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <button
+              className="btn btn-outline"
+              onClick={() => setScreen("dashboard")}
+            >
+              VOLVER
+            </button>
           </div>
         </div>
       )}

@@ -66,6 +66,7 @@ type LeagueSettings = {
   format: string;
   money: number;
   champions: boolean;
+  fillCpuTeams: boolean;
   bidTime: number;
   marketTime: number;
 };
@@ -285,6 +286,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [standings, setStandings] = useState<Standing[]>([]);
   const [showResultForm, setShowResultForm] = useState(false);
   const [showCpuForm, setShowCpuForm] = useState(false);
+  const [clubName, setClubName] = useState("");
   const [opponentName, setOpponentName] = useState("");
   const [goalsFor, setGoalsFor] = useState("0");
   const [goalsAgainst, setGoalsAgainst] = useState("0");
@@ -335,6 +337,14 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       events.close();
     };
   }, [leagueCode]);
+
+  useEffect(() => {
+    const nextTeam = teams[currentUser];
+
+    if (nextTeam?.name && nextTeam.name !== currentUser) {
+      setClubName(nextTeam.name);
+    }
+  }, [teams, currentUser]);
 
   useEffect(() => {
     fetch(`${API_URL}/players?limit=1200`)
@@ -400,22 +410,27 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
 
   const leagueTeams = useMemo(() => {
     const realTeams = players.map((player) => ({
-      name: player,
+      name: teams[player]?.name || player,
       real: true,
     }));
     const size = settings.format === "Pequena" ? 8 : settings.format === "Corta" ? 10 : 20;
-    const generated = generatedClubNames
-      .filter((name) => !players.includes(name))
-      .slice(0, Math.max(size - realTeams.length, 0))
-      .map((name) => ({ name, real: false }));
-    const allTeams = [...realTeams, ...generated].slice(0, size);
+    const generated = settings.fillCpuTeams
+      ? generatedClubNames
+          .filter((name) => !realTeams.some((team) => team.name === name))
+          .slice(0, Math.max(size - realTeams.length, 0))
+          .map((name) => ({ name, real: false }))
+      : [];
+    const allTeams = [...realTeams, ...generated].slice(
+      0,
+      settings.fillCpuTeams ? size : realTeams.length
+    );
     const championsLimit = Math.max(1, Math.floor(allTeams.length / 3));
 
     return allTeams.map((team, index) => ({
       ...team,
       champions: settings.champions && index < championsLimit,
     }));
-  }, [players, settings.champions, settings.format]);
+  }, [players, settings.champions, settings.fillCpuTeams, settings.format, teams]);
 
   useEffect(() => {
     if (leagueTeams.length === 0 || standings.length > 0) return;
@@ -494,6 +509,10 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       alert("Elige una opcion por posicion antes de confirmar");
       return;
     }
+    if (!clubName.trim()) {
+      alert("Escribe el nombre de tu club");
+      return;
+    }
 
     const res = await fetch(`${API_URL}/drafts/${leagueCode}/confirm`, {
       method: "POST",
@@ -502,6 +521,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       },
       body: JSON.stringify({
         username: currentUser,
+        teamName: clubName.trim(),
         squad: currentTeam.squad.map((player) => player.ID),
       }),
     });
@@ -824,7 +844,16 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
             : "Elige una opcion por posicion. Al seleccionar, el boton cambia a eliminar."}
         </p>
 
-        {renderSponsor()}
+        <label className="field">
+          <span>Nombre del club</span>
+          <input
+            className="input"
+            placeholder="Real Gus FC"
+            value={clubName}
+            disabled={hasConfirmed}
+            onChange={(event) => setClubName(event.target.value)}
+          />
+        </label>
 
         <div className="position-pick-grid">
           {groups.map((group) => {
@@ -931,7 +960,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         <button className="btn btn-login compact-btn" onClick={() => setShowResultForm(true)}>
           AGREGAR RESULTADO
         </button>
-        {isOrganizer && (
+        {isOrganizer && settings.fillCpuTeams && (
           <button className="btn btn-outline compact-btn" onClick={() => setShowCpuForm(true)}>
             RESULTADO CPU
           </button>

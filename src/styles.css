@@ -769,6 +769,12 @@ body {
   margin-top: 10px;
 }
 
+.continue-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -876,6 +882,7 @@ body {
   }
 
   .table-actions,
+  .continue-actions,
   .offer-actions,
   .form-grid {
     grid-template-columns: 1fr;

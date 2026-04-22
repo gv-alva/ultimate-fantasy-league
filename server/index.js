@@ -57,6 +57,7 @@ const getLobbyPayload = (code) => {
     format: lobby.format,
     money: lobby.money,
     champions: lobby.champions,
+    fillCpuTeams: lobby.fillCpuTeams,
     bidTime: lobby.bidTime,
     marketTime: lobby.marketTime,
     players: lobby.players,
@@ -259,6 +260,7 @@ app.post("/lobbies", (req, res) => {
     format: req.body.format || "Normal",
     money: Number(req.body.money) || 100,
     champions: Boolean(req.body.champions),
+    fillCpuTeams: req.body.fillCpuTeams !== false,
     bidTime,
     marketTime,
     players: [username],
@@ -362,7 +364,7 @@ app.get("/drafts/:code/events", (req, res) => {
 
 app.post("/drafts/:code/confirm", (req, res) => {
   const code = String(req.params.code).trim();
-  const { username, squad = [] } = req.body;
+  const { username, squad = [], teamName } = req.body;
   const lobby = lobbies.get(code);
   const draft = ensureDraft(code);
 
@@ -386,6 +388,7 @@ app.post("/drafts/:code/confirm", (req, res) => {
 
   draft.teams[username] = {
     ...draft.teams[username],
+    name: String(teamName || draft.teams[username]?.name || username).trim() || username,
     squad: players,
   };
 
@@ -624,6 +627,27 @@ app.get("/lobbies/:code", (req, res) => {
   }
 
   res.json(lobby);
+});
+
+app.delete("/lobbies/:code", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username } = req.body;
+  const lobby = lobbies.get(code);
+
+  if (!lobby) {
+    return res.status(404).json({ error: "Liga no encontrada" });
+  }
+
+  if (lobby.creator !== username) {
+    return res.status(403).json({ error: "Solo el organizador puede eliminar la liga" });
+  }
+
+  lobbies.delete(code);
+  drafts.delete(code);
+  lobbyClients.delete(code);
+  draftClients.delete(code);
+
+  res.json({ message: "Liga eliminada" });
 });
 
 app.get("/lobbies/:code/events", (req, res) => {
