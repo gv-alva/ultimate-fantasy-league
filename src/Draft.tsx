@@ -23,6 +23,8 @@ type Player = {
   PHY: number;
   marketValue: number;
   minBid: number;
+  salary: number;
+  releaseValue?: number;
   card?: string;
   [key: string]: string | number | boolean | null | undefined;
 };
@@ -36,6 +38,8 @@ type TeamState = {
   owner: string;
   name: string;
   budget: number;
+  salaryCap: number;
+  salaryUsed?: number;
   sponsor?: Sponsor;
   squad: Player[];
 };
@@ -46,6 +50,7 @@ type Offer = {
   to: string;
   player: Player;
   amount: number;
+  salary?: number;
   status: "pending" | "accepted" | "rejected";
 };
 
@@ -66,10 +71,9 @@ type Standing = {
 type LeagueSettings = {
   format: string;
   money: number;
+  salaryCap: number;
   champions: boolean;
   fillCpuTeams: boolean;
-  bidTime: number;
-  marketTime: number;
 };
 
 type Bid = {
@@ -172,19 +176,8 @@ const getPlayerGroup = (position = ""): PositionGroup => {
   return "MED";
 };
 
-const sample = <T,>(items: T[], count: number, offset = 0) => {
-  const copy = [...items];
-  const result: T[] = [];
-
-  while (copy.length > 0 && result.length < count) {
-    const index = (offset + result.length * 7 + copy.length * 3) % copy.length;
-    result.push(copy.splice(index, 1)[0]);
-  }
-
-  return result;
-};
-
 const money = (value: number) => `${Math.round(value * 10) / 10}M`;
+const salary = (value: number) => `${Math.round(value)}k`;
 
 const getNewsAuthor = (item: string) =>
   item.startsWith("Fabrizio Romano") ? "Fabrizio Romano" : "Liga UFL";
@@ -221,12 +214,6 @@ const parseGoalRows = (rawText: string) =>
       };
     });
 
-const pickOne = (items: Player[], used: Set<number>, offset: number) => {
-  const candidates = items.filter((player) => !used.has(player.ID));
-  if (candidates.length === 0) return null;
-  return sample(candidates, 1, offset)[0] || null;
-};
-
 const hashNumber = (value: number) => {
   let hash = value >>> 0;
   hash ^= hash << 13;
@@ -235,20 +222,44 @@ const hashNumber = (value: number) => {
   return hash >>> 0;
 };
 
-const getPlayerWeight = (player: Player) => {
-  const overall = player.OVR;
+const hashText = (value: string) => {
+  let hash = 0;
 
-  if (overall >= 95) return 1;
-  if (overall >= 92) return 1;
-  if (overall >= 89) return 1;
-  if (overall >= 85) return 2;
-  if (overall >= 83) return 5;
-  if (overall >= 81) return 10;
-  if (overall >= 78) return 18;
-  return 30;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+
+  return hash >>> 0;
 };
 
-const weightedPick = (items: Player[], used: Set<number>, offset: number) => {
+const getPlayerWeight = (player: Player, mode: "initial" | "auction" = "initial") => {
+  const overall = player.OVR;
+
+  if (mode === "auction") {
+    if (overall >= 90) return 1;
+    if (overall >= 88) return 2;
+    if (overall >= 85) return 5;
+    if (overall >= 83) return 10;
+    if (overall >= 81) return 18;
+    if (overall >= 78) return 30;
+    return 42;
+  }
+
+  if (overall >= 90) return 1;
+  if (overall >= 88) return 2;
+  if (overall >= 85) return 4;
+  if (overall >= 83) return 8;
+  if (overall >= 81) return 14;
+  if (overall >= 78) return 28;
+  return 40;
+};
+
+const weightedPick = (
+  items: Player[],
+  used: Set<number>,
+  offset: number,
+  mode: "initial" | "auction" = "initial"
+) => {
   const candidates = items
     .filter((player) => !used.has(player.ID))
     .sort((leftPlayer, rightPlayer) => {
@@ -259,11 +270,11 @@ const weightedPick = (items: Player[], used: Set<number>, offset: number) => {
 
   if (candidates.length === 0) return null;
 
-  const totalWeight = candidates.reduce((sum, player) => sum + getPlayerWeight(player), 0);
+  const totalWeight = candidates.reduce((sum, player) => sum + getPlayerWeight(player, mode), 0);
   let target = (hashNumber(offset * 997 + candidates.length * 17) % Math.max(totalWeight, 1)) + 1;
 
   for (const player of candidates) {
-    target -= getPlayerWeight(player);
+    target -= getPlayerWeight(player, mode);
     if (target <= 0) {
       return player;
     }
@@ -276,12 +287,13 @@ const fillSlots = (
   candidates: Player[],
   used: Set<number>,
   count: number,
-  offset: number
+  offset: number,
+  mode: "initial" | "auction" = "initial"
 ) => {
   const picked: Player[] = [];
 
   while (picked.length < count) {
-    const nextPlayer = weightedPick(candidates, used, offset + picked.length * 11);
+    const nextPlayer = weightedPick(candidates, used, offset + picked.length * 11, mode);
     if (!nextPlayer) break;
     picked.push(nextPlayer);
     used.add(nextPlayer.ID);
@@ -290,9 +302,28 @@ const fillSlots = (
   return picked;
 };
 
+const pickUltraRarePlayer = (
+  items: Player[],
+  used: Set<number>,
+  seed: string
+) => {
+  const candidates = items.filter((player) => !used.has(player.ID));
+
+  if (candidates.length === 0) return null;
+
+  const sortedCandidates = [...candidates].sort((leftPlayer, rightPlayer) => {
+    const leftHash = hashNumber(leftPlayer.ID + hashText(`${seed}:${leftPlayer.Position}`));
+    const rightHash = hashNumber(rightPlayer.ID + hashText(`${seed}:${rightPlayer.Position}`));
+    return leftHash - rightHash;
+  });
+  const index = hashText(seed) % sortedCandidates.length;
+  return sortedCandidates[index] || sortedCandidates[0] || null;
+};
+
 const buildInitialPicks = (
   pool: Player[],
-  owners: string[]
+  owners: string[],
+  leagueSeed: string
 ): Record<string, Record<PositionGroup, Player[]>> => {
   const eligiblePool = pool.filter((player) => player.OVR >= 75);
   const used = new Set<number>();
@@ -300,11 +331,12 @@ const buildInitialPicks = (
 
   owners.forEach((owner, ownerIndex) => {
     nextPicks[owner] = {} as Record<PositionGroup, Player[]>;
-    const ultraRarePlayer = pickOne(
+    const ultraRarePlayer = pickUltraRarePlayer(
       eligiblePool.filter((player) => player.OVR >= 88),
       used,
-      ownerIndex + 17
+      `${leagueSeed}:${owner}:${ownerIndex}:ultra`
     );
+    if (ultraRarePlayer) used.add(ultraRarePlayer.ID);
     const ultraRareGroup = ultraRarePlayer ? getPlayerGroup(ultraRarePlayer.Position) : null;
 
     groups.forEach((group, groupIndex) => {
@@ -314,7 +346,13 @@ const buildInitialPicks = (
           !used.has(player.ID) &&
           player.OVR <= 84
       );
-      const nextGroupPicks = fillSlots(baseCandidates, used, 3, ownerIndex + groupIndex);
+      const nextGroupPicks = fillSlots(
+        baseCandidates,
+        used,
+        3,
+        hashText(`${leagueSeed}:${owner}:${group}:${groupIndex}`),
+        "initial"
+      );
       const shouldInjectUltraRare =
         ultraRarePlayer &&
         group === ultraRareGroup &&
@@ -331,16 +369,16 @@ const buildInitialPicks = (
   return nextPicks;
 };
 
-const buildAuctionStages = (pool: Player[]) => {
+const buildAuctionStages = (pool: Player[], leagueSeed: string) => {
   const eligiblePool = pool.filter((player) => player.OVR >= 75);
   const used = new Set<number>();
 
   return Array.from({ length: 6 }, (_, stageIndex) => {
     const stagePlayers: Player[] = [];
-    const eliteCandidate = pickOne(
+    const eliteCandidate = pickUltraRarePlayer(
       eligiblePool.filter((player) => player.OVR >= 85 && player.OVR <= 88),
       used,
-      stageIndex + 29
+      `${leagueSeed}:auction:${stageIndex}`
     );
 
     if (eliteCandidate) {
@@ -351,7 +389,13 @@ const buildAuctionStages = (pool: Player[]) => {
     const stageCandidates = eligiblePool.filter(
       (player) => !used.has(player.ID) && player.OVR <= 84
     );
-    const fillerPlayers = fillSlots(stageCandidates, used, 10 - stagePlayers.length, stageIndex + 41);
+    const fillerPlayers = fillSlots(
+      stageCandidates,
+      used,
+      10 - stagePlayers.length,
+      hashText(`${leagueSeed}:auction-fill:${stageIndex}`),
+      "auction"
+    );
     stagePlayers.push(...fillerPlayers);
 
     return stagePlayers;
@@ -361,7 +405,8 @@ const buildAuctionStages = (pool: Player[]) => {
 const decorateTeams = (
   nextTeams: Record<string, TeamState>,
   owners: string[],
-  moneyBudget: number
+  moneyBudget: number,
+  salaryCap: number
 ) =>
   owners.reduce<Record<string, TeamState>>((acc, owner, ownerIndex) => {
     const currentTeam = nextTeams[owner];
@@ -370,6 +415,11 @@ const decorateTeams = (
       owner,
       name: currentTeam?.name || owner,
       budget: currentTeam?.budget ?? moneyBudget,
+      salaryCap: currentTeam?.salaryCap ?? salaryCap,
+      salaryUsed:
+        currentTeam?.salaryUsed ??
+        currentTeam?.squad?.reduce((sum, player) => sum + (Number(player.salary) || 0), 0) ??
+        0,
       sponsor: currentTeam?.sponsor || createSponsor(owner, ownerIndex),
       squad: currentTeam?.squad || [],
     };
@@ -421,6 +471,12 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [cpuPointsB, setCpuPointsB] = useState("0");
 
   useEffect(() => {
+    setInitialPicks({});
+    setAuctionOptions([]);
+    setSelectedPlayer(null);
+  }, [leagueCode]);
+
+  useEffect(() => {
     const events = new EventSource(`${API_URL}/drafts/${leagueCode}/events`);
 
     events.onmessage = (event) => {
@@ -431,7 +487,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       setAuctionStage(draft.auctionStage || 0);
       setBidCounts(draft.bidCounts || {});
       setTeams((currentTeams) => {
-        const nextTeams = decorateTeams(draft.teams || {}, players, settings.money);
+        const nextTeams = decorateTeams(draft.teams || {}, players, settings.money, settings.salaryCap);
         const incomingCurrentTeam = nextTeams[currentUser];
         const localCurrentTeam = currentTeams[currentUser];
         const currentUserConfirmed = (draft.confirmedOwners || []).includes(currentUser);
@@ -518,11 +574,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         return currentInitialPicks;
       }
 
-      return buildInitialPicks(pool, players);
+      return buildInitialPicks(pool, players, leagueCode);
     });
 
-    setTeams((currentTeams) => decorateTeams(currentTeams, players, settings.money));
-  }, [pool, players, settings.money]);
+    setTeams((currentTeams) => decorateTeams(currentTeams, players, settings.money, settings.salaryCap));
+  }, [pool, players, settings.money, settings.salaryCap, leagueCode]);
 
   useEffect(() => {
     const query = search.trim();
@@ -557,8 +613,8 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   useEffect(() => {
     if (pool.length === 0 || auctionOptions.length > 0) return;
 
-    setAuctionOptions(buildAuctionStages(pool));
-  }, [pool, auctionOptions.length]);
+    setAuctionOptions(buildAuctionStages(pool, leagueCode));
+  }, [pool, auctionOptions.length, leagueCode]);
 
   const leagueTeams = useMemo(() => {
     const realTeams = players.map((player) => ({
@@ -647,13 +703,17 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const pendingReceived = offers.filter(
     (offer) => offer.to === currentUser && offer.status === "pending"
   ).length;
+  const currentPayroll =
+    currentTeam?.salaryUsed ??
+    currentTeam?.squad.reduce((sum, player) => sum + (Number(player.salary) || 0), 0) ??
+    0;
 
   const getPlayerStatusLabel = (player: Player) => {
     const owner = playerOwners.get(player.ID);
 
     if (!owner) return "Agente libre";
     if (owner === currentUser) return "Tu club";
-    return `Club: ${owner}`;
+    return `Club: ${teams[owner]?.name || owner}`;
   };
 
   const pickInitialPlayer = (group: PositionGroup, player: Player) => {
@@ -792,6 +852,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         username: currentUser,
         winners: winners.map(({ player, winner }) => ({
           owner: winner.owner,
+          playerId: player.ID,
           playerName: player.Name,
           amount: winner.amount,
         })),
@@ -809,21 +870,37 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       alert("No tienes suficiente presupuesto");
       return;
     }
-    if (Object.values(teams).some((team) => team.squad.some((item) => item.ID === player.ID))) {
-      alert("Ese jugador ya pertenece a otro club");
+    if ((currentTeam.squad?.length || 0) >= 18) {
+      alert("Tu plantilla ya llego al limite de 18 jugadores");
       return;
     }
 
-    const res = await fetch(`${API_URL}/drafts/${leagueCode}/buy`, {
+    const salaryText = window.prompt(
+      `Sueldo aproximado de ${player.Name}: ${salary(player.salary)} por semana. Tienes 3 intentos para convencerlo.`
+    );
+    const offeredSalary = Number(salaryText);
+
+    if (!salaryText) return;
+    if (Number.isNaN(offeredSalary) || offeredSalary <= 0) {
+      alert("Escribe un salario valido");
+      return;
+    }
+
+    const res = await fetch(`${API_URL}/drafts/${leagueCode}/negotiate`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ username: currentUser, playerId: player.ID }),
+      body: JSON.stringify({
+        username: currentUser,
+        playerId: player.ID,
+        salary: offeredSalary,
+      }),
     });
 
     if (!res.ok) {
-      alert("No se pudo comprar este jugador");
+      const errorData = await res.json().catch(() => null);
+      alert(errorData?.error || "No se pudo comprar este jugador");
       return;
     }
 
@@ -851,22 +928,31 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
 
     const amountText = window.prompt("Escribe tu oferta en millones:");
     const amount = Number(amountText);
+    const salaryText = window.prompt(
+      `Sueldo aproximado de ${player.Name}: ${salary(player.salary)} por semana. Tienes 3 intentos para convencerlo.`
+    );
+    const offeredSalary = Number(salaryText);
 
-    if (!amountText) return;
+    if (!amountText || !salaryText) return;
     if (!currentTeam || amount <= 0 || amount > currentTeam.budget) {
       alert("Oferta invalida o sin presupuesto");
       return;
     }
+    if (Number.isNaN(offeredSalary) || offeredSalary <= 0) {
+      alert("Escribe un salario valido");
+      return;
+    }
 
-    const res = await fetch(`${API_URL}/drafts/${leagueCode}/offers`, {
+    const res = await fetch(`${API_URL}/drafts/${leagueCode}/negotiate`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: currentUser,
+        username: currentUser,
         playerId: player.ID,
         amount,
+        salary: offeredSalary,
       }),
     });
 
@@ -1011,6 +1097,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         <span>{player.Position} | GLB {player.OVR}</span>
         <span>{getPlayerStatusLabel(player)}</span>
         <small>Valor: {money(player.marketValue)}</small>
+        <small>Sueldo aprox: {salary(player.salary)}</small>
       </div>
       {action}
     </article>
@@ -1048,7 +1135,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         <p>
           {hasConfirmed
             ? `Esperando managers: ${confirmedOwners.length}/${players.length}`
-            : "Elige una opcion por posicion. Al seleccionar, el boton cambia a eliminar."}
+            : "Elige una opcion por posicion. El 88+ ahora rota mas entre ligas y el resto sale mucho mas variado desde 75."}
         </p>
 
         <label className="field">
@@ -1139,7 +1226,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const renderClub = () => (
     <section className="draft-panel">
       <h2>Club</h2>
-      <p>{currentUser} | Presupuesto disponible: {money(currentTeam?.budget || 0)}</p>
+      <p>
+        {currentTeam?.name || currentUser} | Presupuesto: {money(currentTeam?.budget || 0)} | Nomina:{" "}
+        {salary(currentPayroll)}/{salary(currentTeam?.salaryCap || settings.salaryCap)} | Plantilla:{" "}
+        {currentTeam?.squad.length || 0}/18
+      </p>
       {renderSponsor()}
       <div className="card-grid">
         {(currentTeam?.squad || []).map((player) =>
@@ -1194,9 +1285,9 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
           <h2>{phase === "auction" ? `Subasta etapa ${auctionStage + 1}/6` : "Transferencias"}</h2>
           <p>
             {phase === "auction"
-              ? `Tiempo configurado: ${settings.bidTime}s por etapa`
+              ? "El organizador controla el paso entre etapas y la calidad ahora esta mas repartida."
               : transferWindowOpen
-                ? `Ventana de mercado disponible`
+                ? `Ventana de mercado disponible | No puedes pasar de 18 jugadores ni de ${salary(settings.salaryCap)} semanales`
                 : `Mercado cerrado hasta la mitad de temporada (${midSeasonMatch})`}
           </p>
         </div>
@@ -1252,7 +1343,9 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
               <div key={offer.id} className="offer-card">
                 <strong>{offer.player.Name}</strong>
                 <span>{offer.from} {"->"} {offer.to}</span>
-                <small>{money(offer.amount)} | {offer.status}</small>
+                <small>
+                  {money(offer.amount)} | sueldo {salary(offer.salary || offer.player.salary)} | {offer.status}
+                </small>
                 {offerView === "recibidas" && offer.status === "pending" && (
                   <div className="offer-actions">
                     <button className="small-action" onClick={() => handleOfferDecision(offer.id, "accepted")}>Aceptar</button>
@@ -1435,7 +1528,10 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                 <span>{getPlayerStatusLabel(selectedPlayer)}</span>
                 <h3>{selectedPlayer.Name}</h3>
                 <strong>{selectedPlayer.OVR}</strong>
-                <p>Valor mercado: {money(selectedPlayer.marketValue)} | Puja minima: {money(selectedPlayer.minBid)}</p>
+                <p>
+                  Valor mercado: {money(selectedPlayer.marketValue)} | Puja minima: {money(selectedPlayer.minBid)} |
+                  Sueldo aprox: {salary(selectedPlayer.salary)}
+                </p>
               </div>
             </div>
             <div className="stat-grid">

@@ -4,7 +4,7 @@ import Draft from "./Draft";
 import Lobby from "./Lobby";
 import logo from "./assets/logo.png";
 
-const APP_VERSION = "0.405";
+const APP_VERSION = "0.500";
 
 type LobbyData = {
   code: string;
@@ -14,10 +14,9 @@ type LobbyData = {
   managers?: number;
   format?: string;
   money?: number;
+  salaryCap?: number;
   champions?: boolean;
   fillCpuTeams?: boolean;
-  bidTime?: number;
-  marketTime?: number;
   players: string[];
   status?: "waiting" | "started";
 };
@@ -25,10 +24,9 @@ type LobbyData = {
 type LeagueSettings = {
   format: string;
   money: number;
+  salaryCap: number;
   champions: boolean;
   fillCpuTeams: boolean;
-  bidTime: number;
-  marketTime: number;
 };
 
 type SavedLeague = {
@@ -51,10 +49,9 @@ const getLeagueSettings = (
 ): LeagueSettings => ({
   format: lobby.format || fallback.format,
   money: lobby.money || fallback.money,
+  salaryCap: lobby.salaryCap || fallback.salaryCap,
   champions: lobby.champions ?? fallback.champions,
   fillCpuTeams: lobby.fillCpuTeams ?? fallback.fillCpuTeams,
-  bidTime: lobby.bidTime || fallback.bidTime,
-  marketTime: lobby.marketTime || fallback.marketTime,
 });
 
 const getSavedLeaguesKey = (user: string) => `ufl-saved-leagues:${user}`;
@@ -73,6 +70,7 @@ export default function App() {
   const [fillCpuTeams, setFillCpuTeams] = useState(true);
   const [format, setFormat] = useState("Normal");
   const [money, setMoney] = useState(100);
+  const [salaryCap, setSalaryCap] = useState(1800);
 
   // lobby
   const [leagueCode, setLeagueCode] = useState("");
@@ -85,10 +83,9 @@ export default function App() {
   const [leagueSettings, setLeagueSettings] = useState<LeagueSettings>({
     format: "Normal",
     money: 100,
+    salaryCap: 1800,
     champions: false,
     fillCpuTeams: true,
-    bidTime: 60,
-    marketTime: 10,
   });
 
   const persistLeague = (league: SavedLeague) => {
@@ -200,10 +197,9 @@ export default function App() {
       setLeagueSettings({
         format: "Normal",
         money: 100,
+        salaryCap: 1800,
         champions: false,
         fillCpuTeams: true,
-        bidTime: 60,
-        marketTime: 10,
       });
     setScreen("login");
   };
@@ -220,10 +216,9 @@ export default function App() {
     const nextSettings = {
       format,
       money,
+      salaryCap,
       champions,
       fillCpuTeams,
-      bidTime: 60,
-      marketTime: 10,
     };
 
     let res: Response;
@@ -241,8 +236,7 @@ export default function App() {
           fillCpuTeams,
           format,
           money,
-          bidTime: 60,
-          marketTime: 10,
+          salaryCap,
         }),
       });
     } catch (error) {
@@ -605,6 +599,21 @@ export default function App() {
                 <option value={150}>150M</option>
                 <option value={200}>200M</option>
                 <option value={300}>300M</option>
+              </select>
+            </label>
+
+            <label className="field">
+              <span>Masa salarial</span>
+              <select
+                className="input"
+                value={salaryCap}
+                onChange={(e) => setSalaryCap(Number(e.target.value))}
+              >
+                <option value={1400}>1.4M por semana</option>
+                <option value={1800}>1.8M por semana</option>
+                <option value={2200}>2.2M por semana</option>
+                <option value={2600}>2.6M por semana</option>
+                <option value={3200}>3.2M por semana</option>
               </select>
             </label>
 

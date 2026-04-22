@@ -10,7 +10,10 @@ app.use(cors());
 app.use(express.json());
 const PORT = Number(process.env.PORT) || 3000;
 
-const SERVER_VERSION = "render-ready-v2";
+const SERVER_VERSION = "v0.500";
+const TEAM_SIZE_TARGET = 18;
+const DEFAULT_SALARY_CAP = 1800;
+const MAX_NEGOTIATION_ATTEMPTS = 3;
 
 const lobbies = new Map();
 const lobbyClients = new Map();
@@ -43,6 +46,109 @@ const generateLobbyCode = () => {
   return code;
 };
 
+const hashString = (value) => {
+  let hash = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+
+  return hash >>> 0;
+};
+
+const getTeamPayroll = (team) =>
+  team.squad.reduce((sum, player) => sum + (Number(player.salary) || 0), 0);
+
+const getTeamPayload = (team) => ({
+  ...team,
+  salaryUsed: getTeamPayroll(team),
+});
+
+const findPlayerOwner = (draft, playerId) =>
+  Object.keys(draft.teams).find((owner) =>
+    draft.teams[owner].squad.some((player) => String(player.ID) === String(playerId))
+  );
+
+const teamOwnsPlayer = (team, playerId) =>
+  team.squad.some((player) => String(player.ID) === String(playerId));
+
+const clonePlayerForTeam = (player, salary = player.salary) => ({
+  ...player,
+  salary: Number(salary) || player.salary || 0,
+});
+
+const canAddPlayerToTeam = (team, player, salary = player.salary, amount = player.marketValue) => {
+  if (!team || !player) return false;
+  if (team.squad.length >= TEAM_SIZE_TARGET) return false;
+  if (teamOwnsPlayer(team, player.ID)) return false;
+  if (team.budget < Number(amount || 0)) return false;
+
+  const salaryAfter = getTeamPayroll(team) + (Number(salary) || 0);
+  return salaryAfter <= (Number(team.salaryCap) || DEFAULT_SALARY_CAP);
+};
+
+const getNegotiationKey = (username, playerId) => `${username}:${playerId}`;
+
+const getNegotiationTarget = (code, username, player) => {
+  const baseSalary = Number(player.salary) || 10;
+  const seed = hashString(`${code}:${username}:${player.ID}`);
+  const multiplier = 0.82 + ((seed % 55) / 100);
+  return Math.max(baseSalary, Math.round(baseSalary * multiplier));
+};
+
+const getAvailablePlayers = (draft) => {
+  const ownedIds = new Set();
+
+  Object.values(draft.teams).forEach((team) => {
+    team.squad.forEach((player) => ownedIds.add(String(player.ID)));
+  });
+
+  return loadPlayers()
+    .filter((player) => !ownedIds.has(String(player.ID)))
+    .sort((leftPlayer, rightPlayer) =>
+      leftPlayer.marketValue - rightPlayer.marketValue ||
+      leftPlayer.salary - rightPlayer.salary ||
+      leftPlayer.OVR - rightPlayer.OVR
+    );
+};
+
+const autoCompleteSquad = (draft, owner) => {
+  const team = draft.teams[owner];
+  let guard = 0;
+
+  while (team && team.squad.length < TEAM_SIZE_TARGET && guard < 400) {
+    guard += 1;
+    const cheapestPlayer = getAvailablePlayers(draft).find((player) =>
+      canAddPlayerToTeam(team, player, player.salary, player.marketValue)
+    );
+
+    if (cheapestPlayer) {
+      team.budget -= cheapestPlayer.marketValue;
+      team.squad.push(clonePlayerForTeam(cheapestPlayer, cheapestPlayer.salary));
+      draft.news.unshift(
+        `Fabrizio Romano: ${team.name} completo plantilla con ${cheapestPlayer.Name} por ${cheapestPlayer.marketValue}M`
+      );
+      continue;
+    }
+
+    const releasablePlayer = [...team.squad]
+      .filter((player) => Number(player.releaseValue) > 0)
+      .sort(
+        (leftPlayer, rightPlayer) =>
+          (Number(rightPlayer.salary) || 0) - (Number(leftPlayer.salary) || 0) ||
+          rightPlayer.marketValue - leftPlayer.marketValue
+      )[0];
+
+    if (!releasablePlayer) break;
+
+    team.squad = team.squad.filter((player) => String(player.ID) !== String(releasablePlayer.ID));
+    team.budget += Number(releasablePlayer.releaseValue) || 0;
+    draft.news.unshift(
+      `Liga UFL: ${team.name} libero a ${releasablePlayer.Name} para ajustar la plantilla`
+    );
+  }
+};
+
 const getLobbyPayload = (code) => {
   const lobby = lobbies.get(code);
 
@@ -56,10 +162,9 @@ const getLobbyPayload = (code) => {
     managers: lobby.maxManagers,
     format: lobby.format,
     money: lobby.money,
+    salaryCap: lobby.salaryCap,
     champions: lobby.champions,
     fillCpuTeams: lobby.fillCpuTeams,
-    bidTime: lobby.bidTime,
-    marketTime: lobby.marketTime,
     players: lobby.players,
     status: lobby.status,
   };
@@ -86,7 +191,9 @@ const getDraftPayload = (code) => {
     confirmedOwners: draft.confirmedOwners,
     auctionStage: draft.auctionStage,
     bidCounts: draft.bidCounts,
-    teams: draft.teams,
+    teams: Object.fromEntries(
+      Object.entries(draft.teams).map(([owner, team]) => [owner, getTeamPayload(team)])
+    ),
     offers: draft.offers,
     news: draft.news,
   };
@@ -111,6 +218,7 @@ const ensureDraft = (code) => {
         owner,
         name: owner,
         budget: lobby.money,
+        salaryCap: lobby.salaryCap,
         squad: [],
       };
       return acc;
@@ -125,6 +233,7 @@ const ensureDraft = (code) => {
       bidCounts: {},
       teams,
       offers: [],
+      negotiations: {},
       news: ["Seleccion principal iniciada"],
     });
   }
@@ -239,8 +348,7 @@ app.get("/players/:id", (req, res) => {
 app.post("/lobbies", (req, res) => {
   const { leagueName, username } = req.body;
   const maxManagers = Number(req.body.managers) || 4;
-  const bidTime = Number(req.body.bidTime) || 60;
-  const marketTime = Number(req.body.marketTime) || 10;
+  const salaryCap = Number(req.body.salaryCap) || DEFAULT_SALARY_CAP;
 
   if (!leagueName || !username) {
     return res.status(400).json({ error: "Faltan datos para crear la liga" });
@@ -259,10 +367,9 @@ app.post("/lobbies", (req, res) => {
     managers: maxManagers,
     format: req.body.format || "Normal",
     money: Number(req.body.money) || 100,
+    salaryCap,
     champions: Boolean(req.body.champions),
     fillCpuTeams: req.body.fillCpuTeams !== false,
-    bidTime,
-    marketTime,
     players: [username],
     status: "waiting",
   });
@@ -433,6 +540,8 @@ app.post("/drafts/:code/bid", (req, res) => {
   const { username, playerId, amount } = req.body;
   const draft = ensureDraft(code);
   const lobby = lobbies.get(code);
+  const player = getPlayerById(playerId);
+  const team = draft?.teams[username];
 
   if (!draft || !lobby) {
     return res.status(404).json({ error: "Draft no encontrado" });
@@ -444,6 +553,14 @@ app.post("/drafts/:code/bid", (req, res) => {
 
   if (!lobby.players.includes(username)) {
     return res.status(403).json({ error: "No perteneces a esta liga" });
+  }
+
+  if (!player || !team) {
+    return res.status(404).json({ error: "Jugador no encontrado" });
+  }
+
+  if (!canAddPlayerToTeam(team, player, player.salary, amount)) {
+    return res.status(400).json({ error: "Tu plantilla ya no soporta esta puja por presupuesto o masa salarial" });
   }
 
   draft.bids = draft.bids.filter(
@@ -478,11 +595,18 @@ app.post("/drafts/:code/next-stage", (req, res) => {
 
   winners.forEach((winner) => {
     draft.news.unshift(`Fabrizio Romano: ${winner.owner} gano a ${winner.playerName} por ${winner.amount}M`);
-    const player = getPlayers({ search: winner.playerName, limit: 1 })[0];
+    const player = getPlayerById(winner.playerId);
     const team = draft.teams[winner.owner];
-    if (player && team && !team.squad.some((item) => item.ID === player.ID)) {
-      team.squad.push(player);
+    if (
+      player &&
+      team &&
+      !team.squad.some((item) => item.ID === player.ID) &&
+      canAddPlayerToTeam(team, player, player.salary, winner.amount)
+    ) {
+      team.squad.push(clonePlayerForTeam(player, player.salary));
       team.budget -= Number(winner.amount) || 0;
+    } else if (team) {
+      draft.news.unshift(`Liga UFL: ${team.name} no pudo cerrar a ${winner.playerName} por limite salarial o plantilla`);
     }
   });
 
@@ -501,6 +625,113 @@ app.post("/drafts/:code/next-stage", (req, res) => {
   res.json(getDraftPayload(code));
 });
 
+app.post("/drafts/:code/negotiate", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username, playerId, amount, salary } = req.body;
+  const draft = ensureDraft(code);
+
+  if (!draft) {
+    return res.status(404).json({ error: "Draft no encontrado" });
+  }
+
+  const player = getPlayerById(playerId);
+  const team = draft.teams[username];
+  const owner = findPlayerOwner(draft, playerId);
+  const targetSalary = getNegotiationTarget(code, username, player || {});
+  const negotiationKey = getNegotiationKey(username, playerId);
+  const offeredSalary = Number(salary) || 0;
+  const transferAmount = Number(amount) || 0;
+
+  if (!player || !team) {
+    return res.status(400).json({ error: "No se puede negociar este jugador" });
+  }
+
+  if (owner === username || teamOwnsPlayer(team, playerId)) {
+    return res.status(400).json({ error: "Ese jugador ya pertenece a tu club" });
+  }
+
+  if (team.squad.length >= TEAM_SIZE_TARGET) {
+    return res.status(400).json({ error: "Tu plantilla ya tiene 18 jugadores" });
+  }
+
+  if (offeredSalary <= 0) {
+    return res.status(400).json({ error: "Debes proponer un salario semanal" });
+  }
+
+  if (owner && transferAmount <= 0) {
+    return res.status(400).json({ error: "Debes enviar una oferta de transferencia al club" });
+  }
+
+  const negotiation = draft.negotiations[negotiationKey] || {
+    attempts: 0,
+    targetSalary,
+  };
+
+  if (offeredSalary < negotiation.targetSalary) {
+    negotiation.attempts += 1;
+    if (negotiation.attempts >= MAX_NEGOTIATION_ATTEMPTS) {
+      delete draft.negotiations[negotiationKey];
+      return res.status(400).json({
+        error: `${player.Name} rechazo la negociacion salarial`,
+        attemptsLeft: 0,
+      });
+    }
+
+    draft.negotiations[negotiationKey] = negotiation;
+    return res.status(400).json({
+      error: `${player.Name} quiere un mejor salario. Te quedan ${MAX_NEGOTIATION_ATTEMPTS - negotiation.attempts} intentos`,
+      attemptsLeft: MAX_NEGOTIATION_ATTEMPTS - negotiation.attempts,
+    });
+  }
+
+  delete draft.negotiations[negotiationKey];
+
+  if (!owner) {
+    if (!canAddPlayerToTeam(team, player, offeredSalary, player.marketValue)) {
+      return res.status(400).json({ error: "No puedes cerrar la compra por presupuesto, masa salarial o plantilla" });
+    }
+
+    team.budget -= player.marketValue;
+    team.squad.push(clonePlayerForTeam(player, offeredSalary));
+    draft.news.unshift(
+      `Fabrizio Romano: ${team.name} cerro a ${player.Name} por ${player.marketValue}M con sueldo de ${offeredSalary}k`
+    );
+    sendDraftUpdate(code);
+    return res.json({ mode: "buy", ...getDraftPayload(code) });
+  }
+
+  const existingPendingOffer = draft.offers.find(
+    (offer) =>
+      offer.from === username &&
+      offer.to === owner &&
+      String(offer.player.ID) === String(playerId) &&
+      offer.status === "pending"
+  );
+
+  if (existingPendingOffer) {
+    return res.status(409).json({ error: "Ya se envio una oferta y sigue pendiente de respuesta" });
+  }
+
+  if (!canAddPlayerToTeam(team, player, offeredSalary, transferAmount)) {
+    return res.status(400).json({ error: "No puedes enviar esa negociacion por presupuesto, masa salarial o plantilla" });
+  }
+
+  draft.offers.unshift({
+    id: `${playerId}-${Date.now()}`,
+    from: username,
+    to: owner,
+    player: clonePlayerForTeam(player, offeredSalary),
+    amount: transferAmount,
+    salary: offeredSalary,
+    status: "pending",
+  });
+  draft.news.unshift(
+    `Fabrizio Romano: ${team.name} acordo salario con ${player.Name} y envio oferta a ${draft.teams[owner]?.name || owner}`
+  );
+  sendDraftUpdate(code);
+  res.json({ mode: "offer", ...getDraftPayload(code) });
+});
+
 app.post("/drafts/:code/buy", (req, res) => {
   const code = String(req.params.code).trim();
   const { username, playerId } = req.body;
@@ -512,17 +743,15 @@ app.post("/drafts/:code/buy", (req, res) => {
 
   const player = getPlayerById(playerId);
   const team = draft.teams[username];
-  const alreadyOwned = Object.values(draft.teams).some((item) =>
-    item.squad.some((squadPlayer) => String(squadPlayer.ID) === String(playerId))
-  );
+  const alreadyOwned = findPlayerOwner(draft, playerId);
 
-  if (!player || !team || alreadyOwned || team.budget < player.marketValue) {
+  if (!player || !team || alreadyOwned || !canAddPlayerToTeam(team, player, player.salary, player.marketValue)) {
     return res.status(400).json({ error: "No se puede comprar este jugador" });
   }
 
   team.budget -= player.marketValue;
-  team.squad.push(player);
-  draft.news.unshift(`Fabrizio Romano: ${username} compro a ${player.Name} por ${player.marketValue}M`);
+  team.squad.push(clonePlayerForTeam(player, player.salary));
+  draft.news.unshift(`Fabrizio Romano: ${team.name} compro a ${player.Name} por ${player.marketValue}M`);
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });
@@ -544,7 +773,10 @@ app.post("/drafts/:code/release", (req, res) => {
   }
 
   team.squad = team.squad.filter((item) => String(item.ID) !== String(playerId));
-  draft.news.unshift(`Fabrizio Romano: ${player.Name} fue despedido y entro al mercado`);
+  team.budget += Number(player.releaseValue) || 0;
+  draft.news.unshift(
+    `Fabrizio Romano: ${team.name} libero a ${player.Name} y recupero ${player.releaseValue || 0}M`
+  );
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });
@@ -585,6 +817,7 @@ app.post("/drafts/:code/offers", (req, res) => {
     to,
     player,
     amount: Number(amount),
+    salary: Number(player.salary) || 0,
     status: "pending",
   });
   draft.news.unshift(`Fabrizio Romano: ${from} envio oferta por ${player.Name}`);
@@ -614,15 +847,23 @@ app.post("/drafts/:code/offers/:offerId", (req, res) => {
       (team) => team.owner !== offer.to && team.squad.some((item) => item.ID === offer.player.ID)
     );
 
-    if (!seller || !buyer || !sellerOwns || anotherTeamOwns || buyer.budget < offer.amount) {
+    if (
+      !seller ||
+      !buyer ||
+      !sellerOwns ||
+      anotherTeamOwns ||
+      !canAddPlayerToTeam(buyer, offer.player, offer.salary || offer.player.salary, offer.amount)
+    ) {
       return res.status(400).json({ error: "No se pudo completar la oferta" });
     }
 
     seller.squad = seller.squad.filter((item) => item.ID !== offer.player.ID);
     seller.budget += offer.amount;
-    buyer.squad.push(offer.player);
+    buyer.squad.push(clonePlayerForTeam(offer.player, offer.salary || offer.player.salary));
     buyer.budget -= offer.amount;
-    draft.news.unshift(`Fabrizio Romano: ${offer.player.Name} cambia de ${offer.to} a ${offer.from} por ${offer.amount}M`);
+    draft.news.unshift(
+      `Fabrizio Romano: ${offer.player.Name} cambia de ${seller.name} a ${buyer.name} por ${offer.amount}M`
+    );
   }
 
   offer.status = decision;
@@ -647,6 +888,10 @@ app.post("/drafts/:code/start-season", (req, res) => {
   if (draft.phase !== "market") {
     return res.status(400).json({ error: "El mercado no esta activo" });
   }
+
+  Object.keys(draft.teams).forEach((owner) => {
+    autoCompleteSquad(draft, owner);
+  });
 
   draft.phase = "season";
   draft.news.unshift("Liga UFL: el periodo de transferencias termino y la liga comenzo.");
