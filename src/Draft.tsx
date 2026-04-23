@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
+const TEAM_SIZE_TARGET = 20;
 
 type Tab = "Inicio" | "Club" | "Tabla de liga" | "Transferencia";
 type DraftPhase = "initial" | "auction" | "market";
@@ -250,11 +251,11 @@ const getPlayerWeight = (player: Player, mode: "initial" | "auction" = "initial"
   if (mode === "auction") {
     if (overall >= 90) return 1;
     if (overall >= 88) return 2;
-    if (overall >= 85) return 5;
-    if (overall >= 83) return 10;
-    if (overall >= 81) return 18;
-    if (overall >= 78) return 30;
-    return 42;
+    if (overall >= 85) return 4;
+    if (overall >= 83) return 7;
+    if (overall >= 81) return 14;
+    if (overall >= 78) return 32;
+    return 50;
   }
 
   if (overall >= 90) return 1;
@@ -388,7 +389,7 @@ const buildAuctionStages = (pool: Player[], leagueSeed: string) => {
   return Array.from({ length: 6 }, (_, stageIndex) => {
     const stagePlayers: Player[] = [];
     const eliteCandidate = pickUltraRarePlayer(
-      eligiblePool.filter((player) => player.OVR >= 85 && player.OVR <= 88),
+      eligiblePool.filter((player) => player.OVR >= 84 && player.OVR <= 87),
       used,
       `${leagueSeed}:auction:${stageIndex}`
     );
@@ -399,7 +400,7 @@ const buildAuctionStages = (pool: Player[], leagueSeed: string) => {
     }
 
     const stageCandidates = eligiblePool.filter(
-      (player) => !used.has(player.ID) && player.OVR <= 84
+      (player) => !used.has(player.ID) && player.OVR <= 83
     );
     const fillerPlayers = fillSlots(
       stageCandidates,
@@ -933,8 +934,8 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       alert("No tienes suficiente presupuesto");
       return;
     }
-    if ((currentTeam.squad?.length || 0) >= 18) {
-      alert("Tu plantilla ya llego al limite de 18 jugadores");
+    if ((currentTeam.squad?.length || 0) >= TEAM_SIZE_TARGET) {
+      alert(`Tu plantilla ya llego al limite de ${TEAM_SIZE_TARGET} jugadores`);
       return;
     }
     const success = await negotiateSalaryWithPlayer(player, 0, "buy");
@@ -1239,7 +1240,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       <p>
         {currentTeam?.name || currentUser} | Presupuesto: {money(currentTeam?.budget || 0)} | Masa salarial:{" "}
         {salary(currentPayroll)}/{salary(currentTeam?.salaryCap || settings.salaryCap)} | Plantilla:{" "}
-        {currentTeam?.squad.length || 0}/18
+        {currentTeam?.squad.length || 0}/{TEAM_SIZE_TARGET}
       </p>
       {renderSponsor()}
       <div className="card-grid">
@@ -1297,7 +1298,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
             {phase === "auction"
                 ? "El organizador controla el paso entre etapas y la calidad ahora esta mas repartida."
               : transferWindowOpen
-                ? `Ventana de mercado disponible | No puedes pasar de 18 jugadores ni de ${salary(settings.salaryCap)} por temporada`
+                ? `Ventana de mercado disponible | No puedes pasar de ${TEAM_SIZE_TARGET} jugadores ni de ${salary(settings.salaryCap)} por temporada`
                 : `Mercado cerrado hasta la mitad de temporada (${midSeasonMatch})`}
           </p>
         </div>

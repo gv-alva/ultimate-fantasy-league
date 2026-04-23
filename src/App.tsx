@@ -4,7 +4,7 @@ import Draft from "./Draft";
 import Lobby from "./Lobby";
 import logo from "./assets/logo.png";
 
-const APP_VERSION = "0.501";
+const APP_VERSION = "0.502";
 
 type LobbyData = {
   code: string;
@@ -402,6 +402,11 @@ export default function App() {
         },
         body: JSON.stringify({ username: currentUser }),
       });
+
+      if (res.status === 404) {
+        removeSavedLeague(savedLeague.code);
+        return;
+      }
 
       if (!res.ok) {
         alert("No se pudo eliminar la liga");

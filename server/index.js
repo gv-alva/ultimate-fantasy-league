@@ -9,9 +9,13 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 const PORT = Number(process.env.PORT) || 3000;
+const dataDirectory =
+  process.env.RENDER_DISK_PATH ||
+  process.env.DATA_DIR ||
+  __dirname;
 
-const SERVER_VERSION = "v0.501";
-const TEAM_SIZE_TARGET = 18;
+const SERVER_VERSION = "v0.502";
+const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
 
@@ -19,9 +23,10 @@ const lobbies = new Map();
 const lobbyClients = new Map();
 const drafts = new Map();
 const draftClients = new Map();
-const usersFilePath = path.join(__dirname, "users.json");
+const usersFilePath = path.join(dataDirectory, "users.json");
 
 const ensureUsersFile = () => {
+  fs.mkdirSync(path.dirname(usersFilePath), { recursive: true });
   if (!fs.existsSync(usersFilePath)) {
     fs.writeFileSync(usersFilePath, "[]", "utf8");
   }
@@ -92,6 +97,8 @@ const canAddPlayerToTeam = (team, player, salary = player.salary, amount = playe
 };
 
 const getNegotiationKey = (username, playerId) => `${username}:${playerId}`;
+const getBlockedNegotiationWindow = (draft, username, playerId) =>
+  draft.blockedNegotiations?.[getNegotiationKey(username, playerId)] || 0;
 
 const getNegotiationTarget = (code, username, player) => {
   const minSalary = Number(player.salaryMin) || Number(player.salary) || 10;
@@ -237,10 +244,12 @@ const ensureDraft = (code) => {
       auctionStage: 0,
       bids: [],
       bidCounts: {},
+      transferWindowId: 0,
       teams,
       offers: [],
       pendingSignings: [],
       negotiations: {},
+      blockedNegotiations: {},
       news: ["Seleccion principal iniciada"],
     });
   }
@@ -627,6 +636,7 @@ app.post("/drafts/:code/next-stage", (req, res) => {
   draft.bidCounts = {};
 
   if (draft.auctionStage >= 5) {
+    draft.transferWindowId += 1;
     draft.phase = "market";
     draft.news.unshift("Liga UFL: Subastas finalizadas. Mercado de transferencias abierto.");
   } else {
@@ -653,6 +663,7 @@ app.post("/drafts/:code/negotiate", (req, res) => {
   const pendingSigning = (draft.pendingSignings || []).find(
     (signing) => signing.owner === username && String(signing.player.ID) === String(playerId)
   );
+  const blockedUntilWindow = getBlockedNegotiationWindow(draft, username, playerId);
   const targetSalary = getNegotiationTarget(code, username, player || {});
   const negotiationKey = getNegotiationKey(username, playerId);
   const offeredSalary = Number(salary) || 0;
@@ -662,12 +673,19 @@ app.post("/drafts/:code/negotiate", (req, res) => {
     return res.status(400).json({ error: "No se puede negociar este jugador" });
   }
 
+  if (draft.transferWindowId < blockedUntilWindow) {
+    return res.status(400).json({
+      error: `${player.Name} bloqueo negociaciones contigo hasta la siguiente fecha de transferencias`,
+      attemptsLeft: 0,
+    });
+  }
+
   if (owner === username || teamOwnsPlayer(team, playerId)) {
     return res.status(400).json({ error: "Ese jugador ya pertenece a tu club" });
   }
 
   if (team.squad.length >= TEAM_SIZE_TARGET) {
-    return res.status(400).json({ error: "Tu plantilla ya tiene 18 jugadores" });
+    return res.status(400).json({ error: `Tu plantilla ya tiene ${TEAM_SIZE_TARGET} jugadores` });
   }
 
   if (offeredSalary <= 0) {
@@ -687,8 +705,9 @@ app.post("/drafts/:code/negotiate", (req, res) => {
     negotiation.attempts += 1;
     if (negotiation.attempts >= MAX_NEGOTIATION_ATTEMPTS) {
       delete draft.negotiations[negotiationKey];
+      draft.blockedNegotiations[negotiationKey] = draft.transferWindowId + 1;
       return res.status(400).json({
-        error: `${player.Name} rechazo la negociacion salarial`,
+        error: `${player.Name} rechazo la negociacion salarial y te bloqueo hasta la siguiente fecha de transferencias`,
         attemptsLeft: 0,
       });
     }
