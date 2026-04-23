@@ -3,6 +3,7 @@ const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const fs = require("fs");
 const path = require("path");
+const mongoose = require("mongoose");
 const { getPlayerById, getPlayers, loadPlayers } = require("./playerData");
 
 const app = express();
@@ -24,6 +25,8 @@ const lobbyClients = new Map();
 const drafts = new Map();
 const draftClients = new Map();
 const usersFilePath = path.join(dataDirectory, "users.json");
+const mongoUri = process.env.MONGO_URI || "";
+let mongoReady = false;
 
 const ensureUsersFile = () => {
   fs.mkdirSync(path.dirname(usersFilePath), { recursive: true });
@@ -39,6 +42,100 @@ const readUsers = () => {
 
 const writeUsers = (users) => {
   fs.writeFileSync(usersFilePath, JSON.stringify(users, null, 2), "utf8");
+};
+
+const userSchema = new mongoose.Schema(
+  {
+    username: { type: String, required: true, unique: true, trim: true },
+    password: { type: String, required: true },
+  },
+  { versionKey: false, timestamps: true }
+);
+
+const UserModel = mongoose.models.UflUser || mongoose.model("UflUser", userSchema);
+
+const normalizeUser = (user) => ({
+  id: String(user._id || user.id),
+  username: user.username,
+  password: user.password,
+});
+
+const connectMongo = async () => {
+  if (!mongoUri || mongoReady) return;
+
+  try {
+    await mongoose.connect(mongoUri, {
+      serverSelectionTimeoutMS: 5000,
+    });
+    mongoReady = true;
+    console.log("MongoDB conectado para usuarios.");
+  } catch (error) {
+    console.warn("MongoDB no disponible, se usara users.json.", error.message);
+  }
+};
+
+const getStoredUsers = async () => {
+  if (mongoReady) {
+    const users = await UserModel.find({}, { username: 1, password: 1 }).lean();
+    return users.map(normalizeUser);
+  }
+
+  return readUsers();
+};
+
+const findStoredUserByUsername = async (username) => {
+  if (mongoReady) {
+    const user = await UserModel.findOne({ username }).lean();
+    return user ? normalizeUser(user) : null;
+  }
+
+  const users = readUsers();
+  return users.find((item) => item.username === username) || null;
+};
+
+const createStoredUser = async (username, passwordHash) => {
+  if (mongoReady) {
+    const createdUser = await UserModel.create({ username, password: passwordHash });
+    return normalizeUser(createdUser.toObject());
+  }
+
+  const users = readUsers();
+  const nextId = users.length === 0 ? 1 : Math.max(...users.map((item) => Number(item.id) || 0)) + 1;
+  const nextUser = { id: nextId, username, password: passwordHash };
+  users.push(nextUser);
+  writeUsers(users);
+  return nextUser;
+};
+
+const updateStoredUser = async (id, updates) => {
+  if (mongoReady) {
+    const nextUser = await UserModel.findByIdAndUpdate(id, updates, {
+      new: true,
+      runValidators: true,
+    }).lean();
+    return nextUser ? normalizeUser(nextUser) : null;
+  }
+
+  const users = readUsers();
+  const index = users.findIndex((item) => String(item.id) === String(id));
+  if (index === -1) return null;
+  users[index] = { ...users[index], ...updates };
+  writeUsers(users);
+  return users[index];
+};
+
+const deleteStoredUser = async (id) => {
+  if (mongoReady) {
+    const deletedUser = await UserModel.findByIdAndDelete(id).lean();
+    return deletedUser ? normalizeUser(deletedUser) : null;
+  }
+
+  const users = readUsers();
+  const index = users.findIndex((item) => String(item.id) === String(id));
+  if (index === -1) return null;
+  const [deletedUser] = users.splice(index, 1);
+  writeUsers(users);
+  return deletedUser;
 };
 
 const generateLobbyCode = () => {
@@ -263,8 +360,7 @@ app.get("/health", (req, res) => {
 
 app.post("/login", async (req, res) => {
   const { username, password } = req.body;
-  const users = readUsers();
-  const user = users.find((item) => item.username === username);
+  const user = await findStoredUserByUsername(username);
 
   if (!user) {
     return res.status(400).json({ error: "Usuario no existe" });
@@ -281,63 +377,59 @@ app.post("/login", async (req, res) => {
 
 app.post("/users", async (req, res) => {
   const { username, password } = req.body;
-  const users = readUsers();
 
   if (!username || !password) {
     return res.status(400).json({ error: "Faltan datos del usuario" });
   }
 
-  if (users.some((item) => item.username === username)) {
+  const existingUser = await findStoredUserByUsername(username);
+
+  if (existingUser) {
     return res.status(400).json({ error: "Usuario ya existe" });
   }
 
   const hash = await bcrypt.hash(password, 10);
-  const nextId = users.length === 0 ? 1 : Math.max(...users.map((item) => item.id)) + 1;
-
-  users.push({ id: nextId, username, password: hash });
-  writeUsers(users);
-  res.json({ message: "Usuario creado", id: nextId });
+  const nextUser = await createStoredUser(username, hash);
+  res.json({ message: "Usuario creado", id: nextUser.id });
 });
 
-app.get("/users", (req, res) => {
-  const users = readUsers().map(({ id, username }) => ({ id, username }));
+app.get("/users", async (req, res) => {
+  const users = (await getStoredUsers()).map(({ id, username }) => ({ id, username }));
   res.json(users);
 });
 
 app.put("/users/:id", async (req, res) => {
   const { id } = req.params;
   const { username, password } = req.body;
-  const users = readUsers();
-  const index = users.findIndex((item) => String(item.id) === String(id));
+  const storedUsers = await getStoredUsers();
+  const currentUser = storedUsers.find((item) => String(item.id) === String(id));
 
-  if (index === -1) {
+  if (!currentUser) {
     return res.status(404).json({ error: "Usuario no encontrado" });
   }
 
-  if (users.some((item, itemIndex) => item.username === username && itemIndex !== index)) {
+  if (storedUsers.some((item) => item.username === username && String(item.id) !== String(id))) {
     return res.status(400).json({ error: "Usuario ya existe" });
   }
 
-  users[index].username = username;
+  const updates = { username };
 
   if (password) {
-    users[index].password = await bcrypt.hash(password, 10);
+    updates.password = await bcrypt.hash(password, 10);
   }
 
-  writeUsers(users);
+  await updateStoredUser(id, updates);
   res.json({ message: "Usuario actualizado" });
 });
 
-app.delete("/users/:id", (req, res) => {
+app.delete("/users/:id", async (req, res) => {
   const { id } = req.params;
-  const users = readUsers();
-  const nextUsers = users.filter((item) => String(item.id) !== String(id));
+  const deletedUser = await deleteStoredUser(id);
 
-  if (nextUsers.length === users.length) {
+  if (!deletedUser) {
     return res.status(404).json({ error: "Usuario no encontrado" });
   }
 
-  writeUsers(nextUsers);
   res.json({ message: "Usuario eliminado" });
 });
 
@@ -1013,6 +1105,8 @@ app.get("/lobbies/:code/events", (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Servidor corriendo en http://localhost:${PORT}`);
+connectMongo().finally(() => {
+  app.listen(PORT, () => {
+    console.log(`Servidor corriendo en http://localhost:${PORT}`);
+  });
 });
