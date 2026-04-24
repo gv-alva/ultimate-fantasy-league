@@ -60,7 +60,9 @@ type Offer = {
 type PendingSigning = {
   id: string;
   owner: string;
-  type: "auction";
+  type: "auction" | "offer";
+  fromOwner?: string;
+  fromClub?: string;
   player: Player;
   amount: number;
 };
@@ -102,6 +104,7 @@ type Props = {
 };
 
 type DraftEvent = {
+  deleted?: boolean;
   organizer: string;
   phase: ServerPhase;
   confirmedOwners: string[];
@@ -387,31 +390,33 @@ const buildAuctionStages = (pool: Player[], leagueSeed: string) => {
   const used = new Set<number>();
 
   return Array.from({ length: 6 }, (_, stageIndex) => {
-    const stagePlayers: Player[] = [];
-    const eliteCandidate = pickUltraRarePlayer(
-      eligiblePool.filter((player) => player.OVR >= 84 && player.OVR <= 87),
-      used,
-      `${leagueSeed}:auction:${stageIndex}`
+    const highCandidates = eligiblePool.filter(
+      (player) => !used.has(player.ID) && player.OVR >= 85
+    );
+    const lowCandidates = eligiblePool.filter(
+      (player) => !used.has(player.ID) && player.OVR <= 84
     );
 
-    if (eliteCandidate) {
-      stagePlayers.push(eliteCandidate);
-      used.add(eliteCandidate.ID);
-    }
-
-    const stageCandidates = eligiblePool.filter(
-      (player) => !used.has(player.ID) && player.OVR <= 83
-    );
-    const fillerPlayers = fillSlots(
-      stageCandidates,
+    const highPlayers = fillSlots(
+      highCandidates,
       used,
-      10 - stagePlayers.length,
-      hashText(`${leagueSeed}:auction-fill:${stageIndex}`),
+      5,
+      hashText(`${leagueSeed}:auction-high:${stageIndex}`),
       "auction"
     );
-    stagePlayers.push(...fillerPlayers);
+    const lowPlayers = fillSlots(
+      lowCandidates,
+      used,
+      5,
+      hashText(`${leagueSeed}:auction-low:${stageIndex}`),
+      "auction"
+    );
 
-    return stagePlayers;
+    return [...highPlayers, ...lowPlayers].sort((leftPlayer, rightPlayer) => {
+      const leftHash = hashNumber(leftPlayer.ID + hashText(`${leagueSeed}:${stageIndex}:mix`));
+      const rightHash = hashNumber(rightPlayer.ID + hashText(`${leagueSeed}:${stageIndex}:mix`));
+      return leftHash - rightHash;
+    });
   });
 };
 
@@ -495,6 +500,13 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
 
     events.onmessage = (event) => {
       const draft: DraftEvent = JSON.parse(event.data);
+
+      if (draft.deleted) {
+        window.alert("La liga fue eliminada por el organizador");
+        onLogout();
+        return;
+      }
+
       setServerPhase(draft.phase);
       setOrganizer(draft.organizer);
       setConfirmedOwners(draft.confirmedOwners || []);
@@ -969,8 +981,26 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       alert("Oferta invalida o sin presupuesto");
       return;
     }
-    const success = await negotiateSalaryWithPlayer(player, amount, "offer");
-    if (!success) return;
+
+    const res = await fetch(`${API_URL}/drafts/${leagueCode}/offers`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: currentUser,
+        playerId: player.ID,
+        amount,
+      }),
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => null);
+      alert(errorData?.error || "No se pudo enviar la oferta");
+      return;
+    }
+
+    alert("Oferta enviada al otro manager");
   };
 
   const finishTransferWindow = async () => {
@@ -1309,12 +1339,22 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
           {myPendingSignings.map((signing) => (
             <div key={signing.id} className="offer-card">
               <strong>{signing.player.Name}</strong>
-              <span>Ganaste la subasta por {money(signing.amount)}</span>
+              <span>
+                {signing.type === "auction"
+                  ? `Ganaste la subasta por ${money(signing.amount)}`
+                  : `${signing.fromClub || signing.fromOwner} acepto tu oferta por ${money(signing.amount)}`}
+              </span>
               <small>Sueldo aprox por temporada: {salaryRange(signing.player)}</small>
               <div className="offer-actions">
                 <button
                   className="small-action"
-                  onClick={() => negotiateSalaryWithPlayer(signing.player, signing.amount, "auction")}
+                  onClick={() =>
+                    negotiateSalaryWithPlayer(
+                      signing.player,
+                      signing.amount,
+                      signing.type === "offer" ? "offer" : "auction"
+                    )
+                  }
                 >
                   NEGOCIAR SUELDO
                 </button>

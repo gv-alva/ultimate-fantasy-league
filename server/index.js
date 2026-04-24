@@ -318,6 +318,20 @@ const sendDraftUpdate = (code) => {
   });
 };
 
+const sendLeagueDeleted = (code) => {
+  const payload = JSON.stringify({ code, deleted: true });
+
+  (lobbyClients.get(code) || []).forEach((client) => {
+    client.write(`data: ${payload}\n\n`);
+    client.end();
+  });
+
+  (draftClients.get(code) || []).forEach((client) => {
+    client.write(`data: ${payload}\n\n`);
+    client.end();
+  });
+};
+
 const ensureDraft = (code) => {
   const lobby = lobbies.get(code);
   if (!lobby) return null;
@@ -781,7 +795,7 @@ app.post("/drafts/:code/negotiate", (req, res) => {
   }
 
   if (offeredSalary <= 0) {
-    return res.status(400).json({ error: "Debes proponer un salario semanal" });
+    return res.status(400).json({ error: "Debes proponer un salario por temporada" });
   }
 
   if (owner && transferAmount <= 0) {
@@ -814,6 +828,32 @@ app.post("/drafts/:code/negotiate", (req, res) => {
   delete draft.negotiations[negotiationKey];
 
   if (pendingSigning) {
+    if (pendingSigning.type === "offer") {
+      const seller = draft.teams[pendingSigning.fromOwner];
+      const buyer = draft.teams[pendingSigning.owner];
+      const sellerOwns = seller?.squad.some((item) => item.ID === player.ID);
+
+      if (!seller || !buyer || !sellerOwns) {
+        draft.pendingSignings = draft.pendingSignings.filter((signing) => signing.id !== pendingSigning.id);
+        return res.status(400).json({ error: "La transferencia ya no esta disponible" });
+      }
+
+      if (!canAddPlayerToTeam(buyer, player, offeredSalary, transferAmount)) {
+        return res.status(400).json({ error: "No puedes cerrar este contrato por presupuesto, masa salarial o plantilla" });
+      }
+
+      seller.squad = seller.squad.filter((item) => item.ID !== player.ID);
+      seller.budget += transferAmount;
+      buyer.budget -= transferAmount;
+      buyer.squad.push(clonePlayerForTeam(player, offeredSalary));
+      draft.pendingSignings = draft.pendingSignings.filter((signing) => signing.id !== pendingSigning.id);
+      draft.news.unshift(
+        `Fabrizio Romano: ${player.Name} cambia de ${seller.name} a ${buyer.name} con sueldo de ${offeredSalary}k por temporada`
+      );
+      sendDraftUpdate(code);
+      return res.json({ mode: "offer", ...getDraftPayload(code) });
+    }
+
     if (!canAddPlayerToTeam(team, player, offeredSalary, transferAmount)) {
       return res.status(400).json({ error: "No puedes cerrar este contrato por presupuesto, masa salarial o plantilla" });
     }
@@ -842,36 +882,7 @@ app.post("/drafts/:code/negotiate", (req, res) => {
     return res.json({ mode: "buy", ...getDraftPayload(code) });
   }
 
-  const existingPendingOffer = draft.offers.find(
-    (offer) =>
-      offer.from === username &&
-      offer.to === owner &&
-      String(offer.player.ID) === String(playerId) &&
-      offer.status === "pending"
-  );
-
-  if (existingPendingOffer) {
-    return res.status(409).json({ error: "Ya se envio una oferta y sigue pendiente de respuesta" });
-  }
-
-  if (!canAddPlayerToTeam(team, player, offeredSalary, transferAmount)) {
-    return res.status(400).json({ error: "No puedes enviar esa negociacion por presupuesto, masa salarial o plantilla" });
-  }
-
-  draft.offers.unshift({
-    id: `${playerId}-${Date.now()}`,
-    from: username,
-    to: owner,
-    player: clonePlayerForTeam(player, offeredSalary),
-    amount: transferAmount,
-    salary: offeredSalary,
-    status: "pending",
-  });
-  draft.news.unshift(
-    `Fabrizio Romano: ${team.name} acordo salario con ${player.Name} y envio oferta a ${draft.teams[owner]?.name || owner}`
-  );
-  sendDraftUpdate(code);
-  res.json({ mode: "offer", ...getDraftPayload(code) });
+  return res.status(400).json({ error: "Primero debes enviar oferta al club y esperar aceptacion" });
 });
 
 app.post("/drafts/:code/buy", (req, res) => {
@@ -953,6 +964,12 @@ app.post("/drafts/:code/offers", (req, res) => {
     return res.status(409).json({ error: "Ya se envio una oferta y sigue pendiente de respuesta" });
   }
 
+  const buyer = draft.teams[from];
+
+  if (!buyer || buyer.budget < Number(amount) || buyer.squad.length >= TEAM_SIZE_TARGET) {
+    return res.status(400).json({ error: "No puedes enviar esta oferta por presupuesto o plantilla" });
+  }
+
   draft.offers.unshift({
     id: `${playerId}-${Date.now()}`,
     from,
@@ -994,18 +1011,29 @@ app.post("/drafts/:code/offers/:offerId", (req, res) => {
       !buyer ||
       !sellerOwns ||
       anotherTeamOwns ||
-      !canAddPlayerToTeam(buyer, offer.player, offer.salary || offer.player.salary, offer.amount)
+      buyer.budget < offer.amount ||
+      buyer.squad.length >= TEAM_SIZE_TARGET ||
+      draft.pendingSignings.some(
+        (signing) =>
+          signing.owner === offer.from &&
+          String(signing.player.ID) === String(offer.player.ID)
+      )
     ) {
       return res.status(400).json({ error: "No se pudo completar la oferta" });
     }
 
-    seller.squad = seller.squad.filter((item) => item.ID !== offer.player.ID);
-    seller.budget += offer.amount;
-    buyer.squad.push(clonePlayerForTeam(offer.player, offer.salary || offer.player.salary));
-    buyer.budget -= offer.amount;
     draft.news.unshift(
-      `Fabrizio Romano: ${offer.player.Name} cambia de ${seller.name} a ${buyer.name} por ${offer.amount}M`
+      `Fabrizio Romano: ${seller.name} acepto la oferta de ${buyer.name} por ${offer.player.Name}. Falta negociar el sueldo del jugador.`
     );
+    draft.pendingSignings.unshift({
+      id: `offer-${offer.player.ID}-${Date.now()}-${offer.from}`,
+      owner: offer.from,
+      fromOwner: offer.to,
+      fromClub: seller.name,
+      type: "offer",
+      player: offer.player,
+      amount: offer.amount,
+    });
   }
 
   offer.status = decision;
@@ -1032,7 +1060,7 @@ app.post("/drafts/:code/start-season", (req, res) => {
   }
 
   if ((draft.pendingSignings || []).length > 0) {
-    return res.status(400).json({ error: "Todavia hay fichajes de subasta pendientes por negociar" });
+    return res.status(400).json({ error: "Todavia hay fichajes pendientes por negociar" });
   }
 
   Object.keys(draft.teams).forEach((owner) => {
@@ -1069,6 +1097,7 @@ app.delete("/lobbies/:code", (req, res) => {
     return res.status(403).json({ error: "Solo el organizador puede eliminar la liga" });
   }
 
+  sendLeagueDeleted(code);
   lobbies.delete(code);
   drafts.delete(code);
   lobbyClients.delete(code);

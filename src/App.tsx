@@ -19,6 +19,7 @@ type LobbyData = {
   fillCpuTeams?: boolean;
   players: string[];
   status?: "waiting" | "started";
+  deleted?: boolean;
 };
 
 type LeagueSettings = {
@@ -129,6 +130,17 @@ export default function App() {
 
     events.onmessage = (event) => {
       const lobby: LobbyData = JSON.parse(event.data);
+
+      if (lobby.deleted) {
+        removeSavedLeague(lobby.code || leagueCode);
+        setLeagueCode("");
+        setPlayers([]);
+        setLobbyCreator("");
+        setLobbyStatus("waiting");
+        setScreen("dashboard");
+        return;
+      }
+
       const nextMaxManagers = getLobbyMaxManagers(lobby);
       setPlayers(lobby.players);
       setLobbyCreator((currentCreator) => lobby.creator || currentCreator);
@@ -152,6 +164,37 @@ export default function App() {
       events.close();
     };
   }, [screen, leagueCode, currentUser, lobbyCreator]);
+
+  useEffect(() => {
+    if (screen !== "continue" || savedLeagues.length === 0) return;
+
+    let cancelled = false;
+
+    Promise.all(
+      savedLeagues.map(async (savedLeague) => {
+        try {
+          const response = await fetch(`${API_URL}/lobbies/${savedLeague.code}`);
+          return response.ok ? savedLeague : null;
+        } catch {
+          return savedLeague;
+        }
+      })
+    ).then((existingLeagues) => {
+      if (cancelled) return;
+
+      const nextLeagues = existingLeagues.filter(Boolean) as SavedLeague[];
+      if (nextLeagues.length !== savedLeagues.length) {
+        setSavedLeagues(nextLeagues);
+        if (currentUser) {
+          localStorage.setItem(getSavedLeaguesKey(currentUser), JSON.stringify(nextLeagues));
+        }
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [screen, savedLeagues, currentUser]);
 
   useEffect(() => {
     if (screen === "lobby" && lobbyStatus === "started") {
