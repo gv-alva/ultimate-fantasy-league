@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.600";
+const SERVER_VERSION = "v0.601";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -37,6 +37,29 @@ const randomEventTemplates = [
   "salio golpeado de una practica",
   "quedo tocado por una gripe fuerte",
   "sufrio una contractura de ultimo minuto",
+];
+
+const generatedClubNames = [
+  "Atletico Prisma",
+  "Racing Aurora",
+  "Sporting Volcan",
+  "Real Cobalto",
+  "Inter Eclipse",
+  "Union Titanes",
+  "Deportivo Bruma",
+  "Ciudad Halcones",
+  "Estrella Norte",
+  "Marina FC",
+  "Olimpia Cosmos",
+  "Club Centella",
+  "Toros Capital",
+  "Ferrovia Azul",
+  "Lobos Solar",
+  "Academia Delta",
+  "Dynamo Plata",
+  "Valle Dorado",
+  "Nexus United",
+  "Puerto Atlas",
 ];
 
 const lobbies = new Map();
@@ -72,6 +95,16 @@ const userSchema = new mongoose.Schema(
 );
 
 const UserModel = mongoose.models.UflUser || mongoose.model("UflUser", userSchema);
+const leagueStateSchema = new mongoose.Schema(
+  {
+    code: { type: String, required: true, unique: true, trim: true },
+    lobby: { type: mongoose.Schema.Types.Mixed, default: null },
+    draft: { type: mongoose.Schema.Types.Mixed, default: null },
+  },
+  { versionKey: false, timestamps: true }
+);
+const LeagueStateModel =
+  mongoose.models.UflLeagueState || mongoose.model("UflLeagueState", leagueStateSchema);
 
 const normalizeUser = (user) => ({
   id: String(user._id || user.id),
@@ -88,9 +121,41 @@ const connectMongo = async () => {
     });
     mongoReady = true;
     console.log("MongoDB conectado para usuarios.");
+    const leagueStates = await LeagueStateModel.find({}).lean();
+    leagueStates.forEach((state) => {
+      if (state.lobby) {
+        lobbies.set(state.code, state.lobby);
+      }
+      if (state.draft) {
+        drafts.set(state.code, state.draft);
+      }
+    });
   } catch (error) {
     console.warn("MongoDB no disponible, se usara users.json.", error.message);
   }
+};
+
+const saveLeagueState = async (code) => {
+  if (!mongoReady) return;
+
+  await LeagueStateModel.findOneAndUpdate(
+    { code },
+    {
+      code,
+      lobby: lobbies.get(code) || null,
+      draft: drafts.get(code) || null,
+    },
+    {
+      upsert: true,
+      new: true,
+      setDefaultsOnInsert: true,
+    }
+  );
+};
+
+const deleteLeagueState = async (code) => {
+  if (!mongoReady) return;
+  await LeagueStateModel.findOneAndDelete({ code });
 };
 
 const getStoredUsers = async () => {
@@ -201,6 +266,80 @@ const clonePlayerForTeam = (player, salary = player.salary) => ({
   ...player,
   salary: Number(salary) || player.salary || 0,
 });
+
+const getLeagueSize = (format) => {
+  if (format === "Pequena") return 8;
+  if (format === "Corta") return 10;
+  return 20;
+};
+
+const sortStandings = (standings = []) =>
+  [...standings].sort(
+    (leftTeam, rightTeam) =>
+      rightTeam.pts - leftTeam.pts ||
+      (rightTeam.gf - rightTeam.ga) - (leftTeam.gf - leftTeam.ga) ||
+      rightTeam.gf - leftTeam.gf
+  );
+
+const syncStandingsWithTeams = (draft, lobby) => {
+  if (!draft || !lobby) return;
+
+  const realTeams = lobby.players.map((owner) => ({
+    key: owner,
+    name: draft.teams[owner]?.name || owner,
+    real: true,
+  }));
+  const size = getLeagueSize(lobby.format);
+  const generatedTeams = lobby.fillCpuTeams
+    ? generatedClubNames
+        .filter((name) => !realTeams.some((team) => team.name === name))
+        .slice(0, Math.max(size - realTeams.length, 0))
+        .map((name) => ({ key: name, name, real: false }))
+    : [];
+  const allTeams = [...realTeams, ...generatedTeams].slice(
+    0,
+    lobby.fillCpuTeams ? size : realTeams.length
+  );
+  const championsLimit = lobby.champions ? Math.max(1, Math.floor(allTeams.length / 3)) : 0;
+  const currentStandings = draft.standings || [];
+
+  draft.standings = sortStandings(
+    allTeams.map((team, index) => {
+      const currentStanding = currentStandings.find((item) => item.key === team.key);
+
+      return currentStanding
+        ? {
+            ...currentStanding,
+            name: team.name,
+            real: team.real,
+            champions: lobby.champions && index < championsLimit,
+          }
+        : {
+            key: team.key,
+            name: team.name,
+            real: team.real,
+            champions: lobby.champions && index < championsLimit,
+            played: 0,
+            wins: 0,
+            draws: 0,
+            losses: 0,
+            gf: 0,
+            ga: 0,
+            pts: 0,
+          };
+    })
+  );
+};
+
+const appendSeasonWinnerIfNeeded = (draft) => {
+  if (!draft?.standings?.length || draft.seasonWinnerAnnounced) return;
+
+  const winner = sortStandings(draft.standings)[0];
+  if (!winner) return;
+
+  draft.seasonWinnerAnnounced = true;
+  draft.news.unshift(`Liga UFL: ${winner.name} es campeon de la temporada`);
+};
 
 const syncUnavailablePlayers = (draft) => {
   Object.values(draft.teams).forEach((team) => {
@@ -373,6 +512,10 @@ const sendLobbyUpdate = (code) => {
   const payload = getLobbyPayload(code);
   const clients = lobbyClients.get(code) || [];
 
+  Promise.resolve(saveLeagueState(code)).catch((error) => {
+    console.error("No se pudo guardar el lobby", error.message);
+  });
+
   clients.forEach((client) => {
     client.write(`data: ${JSON.stringify(payload)}\n\n`);
   });
@@ -382,6 +525,8 @@ const getDraftPayload = (code) => {
   const draft = drafts.get(code);
 
   if (!draft) return null;
+
+  syncStandingsWithTeams(draft, lobbies.get(code));
 
   return {
     code,
@@ -398,12 +543,17 @@ const getDraftPayload = (code) => {
     news: draft.news,
     leagueMatchCount: draft.leagueMatchCount || 0,
     inbox: draft.inbox || {},
+    standings: draft.standings || [],
   };
 };
 
 const sendDraftUpdate = (code) => {
   const payload = getDraftPayload(code);
   const clients = draftClients.get(code) || [];
+
+  Promise.resolve(saveLeagueState(code)).catch((error) => {
+    console.error("No se pudo guardar el draft", error.message);
+  });
 
   clients.forEach((client) => {
     client.write(`data: ${JSON.stringify(payload)}\n\n`);
@@ -459,10 +609,13 @@ const ensureDraft = (code) => {
         acc[owner] = [];
         return acc;
       }, {}),
+      standings: [],
+      seasonWinnerAnnounced: false,
       news: ["Seleccion principal iniciada"],
     });
   }
 
+  syncStandingsWithTeams(drafts.get(code), lobby);
   return drafts.get(code);
 };
 
@@ -565,7 +718,7 @@ app.get("/players/:id", (req, res) => {
   res.json(player);
 });
 
-app.post("/lobbies", (req, res) => {
+app.post("/lobbies", async (req, res) => {
   const { leagueName, username } = req.body;
   const maxManagers = Number(req.body.managers) || 4;
   const salaryCap = Number(req.body.salaryCap) || DEFAULT_SALARY_CAP;
@@ -594,6 +747,8 @@ app.post("/lobbies", (req, res) => {
     players: [username],
     status: "waiting",
   });
+
+  await saveLeagueState(code);
 
   res.json(getLobbyPayload(code));
 });
@@ -723,6 +878,7 @@ app.post("/drafts/:code/confirm", (req, res) => {
     name: String(teamName || draft.teams[username]?.name || username).trim() || username,
     squad: players,
   };
+  syncStandingsWithTeams(draft, lobby);
 
   if (draft.confirmedOwners.length === lobby.players.length) {
     draft.phase = "dashboard";
@@ -1215,7 +1371,138 @@ app.post("/drafts/:code/start-season", (req, res) => {
   });
 
   draft.phase = "season";
+  draft.seasonWinnerAnnounced = false;
   draft.news.unshift("Liga UFL: el periodo de transferencias termino y la liga comenzo.");
+  sendDraftUpdate(code);
+  res.json(getDraftPayload(code));
+});
+
+app.post("/drafts/:code/results", (req, res) => {
+  const code = String(req.params.code).trim();
+  const {
+    username,
+    opponentName,
+    goalsFor,
+    goalsAgainst,
+    teamScorers = [],
+    opponentScorers = [],
+    teamCards = 0,
+    opponentCards = 0,
+    mvpPlayerName = "",
+  } = req.body;
+  const draft = ensureDraft(code);
+  const lobby = lobbies.get(code);
+
+  if (!draft || !lobby) {
+    return res.status(404).json({ error: "Draft no encontrado" });
+  }
+
+  syncStandingsWithTeams(draft, lobby);
+
+  const currentTeam = draft.teams[username];
+  const myTeamName = currentTeam?.name || username;
+  const scoreA = Number(goalsFor);
+  const scoreB = Number(goalsAgainst);
+
+  if (!currentTeam || !opponentName) {
+    return res.status(400).json({ error: "Faltan datos del resultado" });
+  }
+
+  const hasOpponent = draft.standings.some((team) => team.name === opponentName);
+  if (!hasOpponent || opponentName === myTeamName) {
+    return res.status(400).json({ error: "Selecciona un rival valido" });
+  }
+
+  draft.standings = sortStandings(
+    draft.standings.map((team) => {
+      if (team.name !== myTeamName && team.name !== opponentName) return team;
+
+      const isHome = team.name === myTeamName;
+      const teamGoalsFor = isHome ? scoreA : scoreB;
+      const teamGoalsAgainst = isHome ? scoreB : scoreA;
+      const win = teamGoalsFor > teamGoalsAgainst ? 1 : 0;
+      const draw = teamGoalsFor === teamGoalsAgainst ? 1 : 0;
+      const loss = teamGoalsFor < teamGoalsAgainst ? 1 : 0;
+
+      return {
+        ...team,
+        played: team.played + 1,
+        wins: team.wins + win,
+        draws: team.draws + draw,
+        losses: team.losses + loss,
+        gf: team.gf + teamGoalsFor,
+        ga: team.ga + teamGoalsAgainst,
+        pts: team.pts + (win ? 3 : draw ? 1 : 0),
+      };
+    })
+  );
+
+  draft.leagueMatchCount = Number(draft.leagueMatchCount || 0) + 1;
+  syncUnavailablePlayers(draft);
+  maybeTriggerRandomEvent(code, draft);
+  draft.news.unshift(`Liga UFL: ${myTeamName} ${scoreA}-${scoreB} ${opponentName}`);
+
+  teamScorers.forEach((row) => {
+    draft.news.unshift(`Liga UFL: ${row.name} anoto ${row.goals} gol(es) para ${myTeamName}`);
+  });
+  opponentScorers.forEach((row) => {
+    draft.news.unshift(`Liga UFL: ${row.name} anoto ${row.goals} gol(es) para ${opponentName}`);
+  });
+  draft.news.unshift(`Liga UFL: tarjetas ${myTeamName} ${teamCards} - ${opponentCards} ${opponentName}`);
+
+  if (mvpPlayerName) {
+    draft.news.unshift(`Liga UFL: jugador del partido ${mvpPlayerName}`);
+  }
+
+  if (draft.leagueMatchCount >= getLeagueSize(lobby.format) * 2) {
+    appendSeasonWinnerIfNeeded(draft);
+  }
+
+  sendDraftUpdate(code);
+  res.json(getDraftPayload(code));
+});
+
+app.post("/drafts/:code/cpu-result", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username, cpuTeamA, cpuTeamB, cpuPointsA = 3, cpuPointsB = 0 } = req.body;
+  const draft = ensureDraft(code);
+  const lobby = lobbies.get(code);
+
+  if (!draft || !lobby) {
+    return res.status(404).json({ error: "Draft no encontrado" });
+  }
+
+  if (lobby.creator !== username) {
+    return res.status(403).json({ error: "Solo el organizador puede cargar resultado CPU" });
+  }
+
+  syncStandingsWithTeams(draft, lobby);
+
+  if (!cpuTeamA || !cpuTeamB || cpuTeamA === cpuTeamB) {
+    return res.status(400).json({ error: "Selecciona dos equipos CPU distintos" });
+  }
+
+  draft.standings = sortStandings(
+    draft.standings.map((team) => {
+      if (team.name === cpuTeamA) {
+        return { ...team, pts: team.pts + Number(cpuPointsA), played: team.played + 1 };
+      }
+      if (team.name === cpuTeamB) {
+        return { ...team, pts: team.pts + Number(cpuPointsB), played: team.played + 1 };
+      }
+      return team;
+    })
+  );
+
+  draft.leagueMatchCount = Number(draft.leagueMatchCount || 0) + 1;
+  syncUnavailablePlayers(draft);
+  maybeTriggerRandomEvent(code, draft);
+  draft.news.unshift(`Liga UFL: resultado CPU cargado para ${cpuTeamA} y ${cpuTeamB}`);
+
+  if (draft.leagueMatchCount >= getLeagueSize(lobby.format) * 2) {
+    appendSeasonWinnerIfNeeded(draft);
+  }
+
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });
@@ -1252,7 +1539,7 @@ app.get("/lobbies/:code", (req, res) => {
   res.json(lobby);
 });
 
-app.delete("/lobbies/:code", (req, res) => {
+app.delete("/lobbies/:code", async (req, res) => {
   const code = String(req.params.code).trim();
   const { username } = req.body;
   const lobby = lobbies.get(code);
@@ -1270,6 +1557,7 @@ app.delete("/lobbies/:code", (req, res) => {
   drafts.delete(code);
   lobbyClients.delete(code);
   draftClients.delete(code);
+  await deleteLeagueState(code);
 
   res.json({ message: "Liga eliminada" });
 });

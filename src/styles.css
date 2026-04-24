@@ -815,6 +815,34 @@ body {
   resize: vertical;
 }
 
+.scorer-field {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.scorer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.scorer-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px 110px;
+  gap: 8px;
+  align-items: center;
+}
+
+.scorer-goals {
+  text-align: center;
+}
+
+.scorer-add,
+.scorer-remove {
+  width: auto;
+}
+
 .offer-switch {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -921,5 +949,9 @@ body {
   .form-grid {
     grid-template-columns: 1fr;
     flex-direction: column;
+  }
+
+  .scorer-row {
+    grid-template-columns: 1fr;
   }
 }

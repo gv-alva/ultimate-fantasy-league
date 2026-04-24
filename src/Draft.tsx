@@ -100,6 +100,11 @@ type InboxItem = {
   playerId?: number;
 };
 
+type GoalEntry = {
+  playerId: string;
+  goals: string;
+};
+
 type Bid = {
   owner: string;
   playerId: number;
@@ -127,6 +132,7 @@ type DraftEvent = {
   news: string[];
   leagueMatchCount: number;
   inbox: Record<string, InboxItem[]>;
+  standings: Standing[];
 };
 
 const tabs: Tab[] = ["Inicio", "Club", "Tabla de liga", "Transferencia"];
@@ -148,7 +154,6 @@ const sponsorCategories = [
   "Maximo Goleador",
   "Maximo MVP",
   "Tarjetas",
-  "Mejor Portero",
 ];
 
 const generatedClubNames = [
@@ -221,27 +226,22 @@ const getEngagement = (item: string, index: number) => ({
 
 const createSponsor = (owner: string, index: number): Sponsor => {
   const name = sponsorNames[index % sponsorNames.length];
+  const winBase = 6 + ((owner.length + index) % 5);
+  const drawBase = Math.max(2, winBase - (2 + (index % 2)));
+  const loseBase = Math.max(1, drawBase - 2);
   const values = sponsorCategories.reduce<Record<string, number>>((acc, category, categoryIndex) => {
-    const base = ((owner.length + index * 3 + categoryIndex * 2) % 9) + 1;
-    acc[category] = category === "Tarjetas" ? -base : base;
+    if (category === "Ingreso por ganar") acc[category] = winBase;
+    else if (category === "Ingreso por empatar") acc[category] = drawBase;
+    else if (category === "Ingreso por perder") acc[category] = loseBase;
+    else {
+      const base = ((owner.length + index * 3 + categoryIndex * 2) % 7) + 1;
+      acc[category] = category === "Tarjetas" ? -base : base;
+    }
     return acc;
   }, {});
 
   return { name, values };
 };
-
-const parseGoalRows = (rawText: string) =>
-  rawText
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [name, goals] = line.split(":");
-      return {
-        name: (name || "").trim(),
-        goals: Number((goals || "1").trim()) || 1,
-      };
-    });
 
 const hashNumber = (value: number) => {
   let hash = value >>> 0;
@@ -495,10 +495,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [opponentName, setOpponentName] = useState("");
   const [goalsFor, setGoalsFor] = useState("0");
   const [goalsAgainst, setGoalsAgainst] = useState("0");
-  const [teamScorers, setTeamScorers] = useState("");
-  const [opponentScorers, setOpponentScorers] = useState("");
+  const [teamScorers, setTeamScorers] = useState<GoalEntry[]>([{ playerId: "", goals: "1" }]);
+  const [opponentScorers, setOpponentScorers] = useState<GoalEntry[]>([{ playerId: "", goals: "1" }]);
   const [teamCards, setTeamCards] = useState("0");
   const [opponentCards, setOpponentCards] = useState("0");
+  const [mvpPlayerId, setMvpPlayerId] = useState("");
   const [cpuTeamA, setCpuTeamA] = useState("");
   const [cpuTeamB, setCpuTeamB] = useState("");
   const [cpuPointsA, setCpuPointsA] = useState("3");
@@ -554,6 +555,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       setNews(draft.news || []);
       setLeagueMatchCount(draft.leagueMatchCount || 0);
       setInbox(draft.inbox || {});
+      setStandings(draft.standings || []);
 
       if (draft.phase === "dashboard") {
         setPhase("initial");
@@ -753,6 +755,13 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     currentTeam?.salaryUsed ??
     currentTeam?.squad.reduce((sum, player) => sum + (Number(player.salary) || 0), 0) ??
     0;
+  const currentTeamPlayers = currentTeam?.squad || [];
+  const opponentTeam = Object.values(teams).find((team) => team.name === opponentName);
+  const opponentIsManager = Boolean(opponentTeam && players.includes(opponentTeam.owner));
+  const opponentPlayers = opponentIsManager ? opponentTeam?.squad || [] : [];
+  const mvpOptions = opponentIsManager
+    ? [...currentTeamPlayers, ...opponentPlayers]
+    : currentTeamPlayers;
 
   const getPlayerStatusLabel = (player: Player) => {
     const owner = playerOwners.get(player.ID);
@@ -769,24 +778,47 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     return `Club: ${teams[owner]?.name || owner}`;
   };
 
-  const progressLeagueMatch = async () => {
-    try {
-      const response = await fetch(`${API_URL}/drafts/${leagueCode}/progress-match`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ username: currentUser }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        alert(errorData?.error || "No se pudo avanzar la jornada");
-      }
-    } catch (error) {
-      console.error(error);
-    }
+  const updateGoalRow = (
+    team: "mine" | "opponent",
+    index: number,
+    field: "playerId" | "goals",
+    value: string
+  ) => {
+    const setter = team === "mine" ? setTeamScorers : setOpponentScorers;
+    setter((currentRows) =>
+      currentRows.map((row, rowIndex) =>
+        rowIndex === index ? { ...row, [field]: value } : row
+      )
+    );
   };
+
+  const addGoalRow = (team: "mine" | "opponent") => {
+    const setter = team === "mine" ? setTeamScorers : setOpponentScorers;
+    setter((currentRows) => [...currentRows, { playerId: "", goals: "1" }]);
+  };
+
+  const removeGoalRow = (team: "mine" | "opponent", index: number) => {
+    const setter = team === "mine" ? setTeamScorers : setOpponentScorers;
+    setter((currentRows) =>
+      currentRows.length === 1
+        ? [{ playerId: "", goals: "1" }]
+        : currentRows.filter((_, rowIndex) => rowIndex !== index)
+    );
+  };
+
+  const normalizeGoalEntries = (rows: GoalEntry[], playerOptions: Player[]) =>
+    rows
+      .filter((row) => row.playerId)
+      .map((row) => {
+        const player = playerOptions.find((item) => String(item.ID) === String(row.playerId));
+        return player
+          ? {
+              name: player.Name,
+              goals: Math.max(1, Number(row.goals) || 1),
+            }
+          : null;
+      })
+      .filter(Boolean) as Array<{ name: string; goals: number }>;
 
   const negotiateSalaryWithPlayer = async (
     player: Player,
@@ -1076,101 +1108,79 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     }
   };
 
-  const applyMatchResult = (
-    teamAName: string,
-    teamBName: string,
-    scoreA: number,
-    scoreB: number,
-    extraNews: string[]
-  ) => {
-    setStandings((current) =>
-      current
-        .map((team) => {
-          if (team.name !== teamAName && team.name !== teamBName) return team;
-
-          const isA = team.name === teamAName;
-          const goalsForValue = isA ? scoreA : scoreB;
-          const goalsAgainstValue = isA ? scoreB : scoreA;
-          const win = goalsForValue > goalsAgainstValue ? 1 : 0;
-          const draw = goalsForValue === goalsAgainstValue ? 1 : 0;
-          const loss = goalsForValue < goalsAgainstValue ? 1 : 0;
-
-          return {
-            ...team,
-            played: team.played + 1,
-            wins: team.wins + win,
-            draws: team.draws + draw,
-            losses: team.losses + loss,
-            gf: team.gf + goalsForValue,
-            ga: team.ga + goalsAgainstValue,
-            pts: team.pts + (win ? 3 : draw ? 1 : 0),
-          };
-        })
-        .sort((a, b) => b.pts - a.pts || b.gf - a.gf)
-    );
-
-    const nextLeagueMatch = leagueMatchCount + 1;
-    if (nextLeagueMatch >= totalSeasonMatches) {
-      const winnerName =
-        [...standings]
-          .sort((a, b) => b.pts - a.pts || b.gf - a.gf)[0]?.name || teamAName;
-      setNews((currentNews) => [
-        `Liga UFL: ${winnerName} es campeon de la temporada`,
-        ...extraNews,
-        ...currentNews,
-      ]);
-      setPhase("initial");
-      setServerPhase("selection");
-      setConfirmedOwners([]);
-      return;
-    }
-
-    setNews((currentNews) => [...extraNews, ...currentNews]);
-  };
-
-  const submitManagerResult = () => {
-    const myGoals = Number(goalsFor);
-    const rivalGoals = Number(goalsAgainst);
+  const submitManagerResult = async () => {
     if (!opponentName) {
       alert("Selecciona rival");
       return;
     }
 
-    const scorerRows = parseGoalRows(teamScorers);
-    const rivalScorerRows = parseGoalRows(opponentScorers);
-    const extraNews = [
-      `Liga UFL: ${currentTeam?.name || currentUser} ${myGoals}-${rivalGoals} ${opponentName}`,
-      ...scorerRows.map((row) => `Liga UFL: ${row.name} anoto ${row.goals} gol(es) para ${currentTeam?.name || currentUser}`),
-      ...rivalScorerRows.map((row) => `Liga UFL: ${row.name} anoto ${row.goals} gol(es) para ${opponentName}`),
-      `Liga UFL: tarjetas ${currentTeam?.name || currentUser} ${teamCards} - ${opponentCards} ${opponentName}`,
-    ];
+    const response = await fetch(`${API_URL}/drafts/${leagueCode}/results`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+        opponentName,
+        goalsFor: Number(goalsFor),
+        goalsAgainst: Number(goalsAgainst),
+        teamScorers: normalizeGoalEntries(teamScorers, currentTeamPlayers),
+        opponentScorers: normalizeGoalEntries(opponentScorers, opponentPlayers),
+        teamCards: Number(teamCards) || 0,
+        opponentCards: Number(opponentCards) || 0,
+        mvpPlayerName:
+          mvpOptions.find((player) => String(player.ID) === String(mvpPlayerId))?.Name || "",
+      }),
+    });
 
-    applyMatchResult(currentTeam?.name || currentUser, opponentName, myGoals, rivalGoals, extraNews);
-    progressLeagueMatch();
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      alert(errorData?.error || "No se pudo guardar el resultado");
+      return;
+    }
+
     setShowResultForm(false);
+    setOpponentName("");
+    setGoalsFor("0");
+    setGoalsAgainst("0");
+    setTeamScorers([{ playerId: "", goals: "1" }]);
+    setOpponentScorers([{ playerId: "", goals: "1" }]);
+    setTeamCards("0");
+    setOpponentCards("0");
+    setMvpPlayerId("");
   };
 
-  const submitCpuResult = () => {
+  const submitCpuResult = async () => {
     if (!cpuTeamA || !cpuTeamB || cpuTeamA === cpuTeamB) {
       alert("Selecciona dos equipos CPU distintos");
       return;
     }
 
-    const pointsA = Number(cpuPointsA);
-    const pointsB = Number(cpuPointsB);
+    const response = await fetch(`${API_URL}/drafts/${leagueCode}/cpu-result`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+        cpuTeamA,
+        cpuTeamB,
+        cpuPointsA: Number(cpuPointsA),
+        cpuPointsB: Number(cpuPointsB),
+      }),
+    });
 
-    setStandings((current) =>
-      current
-        .map((team) => {
-          if (team.name === cpuTeamA) return { ...team, pts: team.pts + pointsA, played: team.played + 1 };
-          if (team.name === cpuTeamB) return { ...team, pts: team.pts + pointsB, played: team.played + 1 };
-          return team;
-        })
-        .sort((a, b) => b.pts - a.pts || b.gf - a.gf)
-    );
-    setNews((current) => [`Liga UFL: resultado CPU cargado para ${cpuTeamA} y ${cpuTeamB}`, ...current]);
-    progressLeagueMatch();
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      alert(errorData?.error || "No se pudo guardar el resultado CPU");
+      return;
+    }
+
     setShowCpuForm(false);
+    setCpuTeamA("");
+    setCpuTeamB("");
+    setCpuPointsA("3");
+    setCpuPointsB("0");
   };
 
   const renderPlayerCard = (player: Player, action?: ReactNode) => (
@@ -1584,14 +1594,72 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                 <span>Marcador rival</span>
                 <input className="input" value={goalsAgainst} onChange={(e) => setGoalsAgainst(e.target.value)} />
               </label>
-              <label className="field">
-                <span>Goleadores tuyos (Nombre:goles)</span>
-                <textarea className="input textarea-input" value={teamScorers} onChange={(e) => setTeamScorers(e.target.value)} />
-              </label>
-              <label className="field">
-                <span>Goleadores rival (Nombre:goles)</span>
-                <textarea className="input textarea-input" value={opponentScorers} onChange={(e) => setOpponentScorers(e.target.value)} />
-              </label>
+              <div className="field scorer-field">
+                <span>Goleadores de tu club</span>
+                <div className="scorer-list">
+                  {teamScorers.map((row, index) => (
+                    <div key={`team-scorer-${index}`} className="scorer-row">
+                      <select
+                        className="input"
+                        value={row.playerId}
+                        onChange={(e) => updateGoalRow("mine", index, "playerId", e.target.value)}
+                      >
+                        <option value="">Selecciona jugador</option>
+                        {currentTeamPlayers.map((player) => (
+                          <option key={player.ID} value={player.ID}>
+                            {player.Name}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        className="input scorer-goals"
+                        value={row.goals}
+                        onChange={(e) => updateGoalRow("mine", index, "goals", e.target.value)}
+                      />
+                      <button className="small-action danger scorer-remove" onClick={() => removeGoalRow("mine", index)}>
+                        Quitar
+                      </button>
+                    </div>
+                  ))}
+                  <button className="small-action scorer-add" onClick={() => addGoalRow("mine")}>
+                    Agregar goleador
+                  </button>
+                </div>
+              </div>
+              {opponentIsManager && (
+                <div className="field scorer-field">
+                  <span>Goleadores del rival</span>
+                  <div className="scorer-list">
+                    {opponentScorers.map((row, index) => (
+                      <div key={`opp-scorer-${index}`} className="scorer-row">
+                        <select
+                          className="input"
+                          value={row.playerId}
+                          onChange={(e) => updateGoalRow("opponent", index, "playerId", e.target.value)}
+                        >
+                          <option value="">Selecciona jugador</option>
+                          {opponentPlayers.map((player) => (
+                            <option key={player.ID} value={player.ID}>
+                              {player.Name}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          className="input scorer-goals"
+                          value={row.goals}
+                          onChange={(e) => updateGoalRow("opponent", index, "goals", e.target.value)}
+                        />
+                        <button className="small-action danger scorer-remove" onClick={() => removeGoalRow("opponent", index)}>
+                          Quitar
+                        </button>
+                      </div>
+                    ))}
+                    <button className="small-action scorer-add" onClick={() => addGoalRow("opponent")}>
+                      Agregar goleador rival
+                    </button>
+                  </div>
+                </div>
+              )}
               <label className="field">
                 <span>Tarjetas de tu equipo</span>
                 <input className="input" value={teamCards} onChange={(e) => setTeamCards(e.target.value)} />
@@ -1599,6 +1667,17 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
               <label className="field">
                 <span>Tarjetas del rival</span>
                 <input className="input" value={opponentCards} onChange={(e) => setOpponentCards(e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Jugador del partido</span>
+                <select className="input" value={mvpPlayerId} onChange={(e) => setMvpPlayerId(e.target.value)}>
+                  <option value="">Selecciona jugador</option>
+                  {mvpOptions.map((player) => (
+                    <option key={`mvp-${player.ID}`} value={player.ID}>
+                      {player.Name}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
             <button className="btn btn-login" onClick={submitManagerResult}>GUARDAR RESULTADO</button>
