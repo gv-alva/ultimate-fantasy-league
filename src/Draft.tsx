@@ -28,6 +28,8 @@ type Player = {
   salaryMin?: number;
   salaryMax?: number;
   releaseValue?: number;
+  unavailableUntilMatch?: number;
+  unavailableReason?: string;
   card?: string;
   [key: string]: string | number | boolean | null | undefined;
 };
@@ -87,6 +89,15 @@ type LeagueSettings = {
   salaryCap: number;
   champions: boolean;
   fillCpuTeams: boolean;
+  randomEvents?: boolean;
+};
+
+type InboxItem = {
+  id: string;
+  title: string;
+  body: string;
+  matchUntil?: number;
+  playerId?: number;
 };
 
 type Bid = {
@@ -114,6 +125,8 @@ type DraftEvent = {
   offers: Offer[];
   pendingSignings: PendingSigning[];
   news: string[];
+  leagueMatchCount: number;
+  inbox: Record<string, InboxItem[]>;
 };
 
 const tabs: Tab[] = ["Inicio", "Club", "Tabla de liga", "Transferencia"];
@@ -472,8 +485,10 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [offerView, setOfferView] = useState<"recibidas" | "enviadas">("recibidas");
   const [offers, setOffers] = useState<Offer[]>([]);
   const [pendingSignings, setPendingSignings] = useState<PendingSigning[]>([]);
-  const [matchesPlayed, setMatchesPlayed] = useState(0);
+  const [leagueMatchCount, setLeagueMatchCount] = useState(0);
   const [standings, setStandings] = useState<Standing[]>([]);
+  const [inbox, setInbox] = useState<Record<string, InboxItem[]>>({});
+  const [showInbox, setShowInbox] = useState(false);
   const [showResultForm, setShowResultForm] = useState(false);
   const [showCpuForm, setShowCpuForm] = useState(false);
   const [clubName, setClubName] = useState("");
@@ -537,6 +552,8 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       setOffers(draft.offers || []);
       setPendingSignings(draft.pendingSignings || []);
       setNews(draft.news || []);
+      setLeagueMatchCount(draft.leagueMatchCount || 0);
+      setInbox(draft.inbox || {});
 
       if (draft.phase === "dashboard") {
         setPhase("initial");
@@ -612,7 +629,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     const leagueSize = settings.format === "Pequena" ? 8 : settings.format === "Corta" ? 10 : 20;
     const totalMatches = leagueSize * 2;
     const halfSeasonMatch = Math.floor(totalMatches / 2);
-    const windowOpen = phase === "market" || matchesPlayed === 0 || matchesPlayed === halfSeasonMatch;
+    const windowOpen = phase === "market" || leagueMatchCount === 0 || leagueMatchCount === halfSeasonMatch;
 
     if (!windowOpen || query.length < 2) {
       setResults([]);
@@ -635,7 +652,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       .catch(() => setResults([]));
 
     return () => controller.abort();
-  }, [search, phase, teams, currentUser, matchesPlayed, settings.format]);
+  }, [search, phase, teams, currentUser, leagueMatchCount, settings.format]);
 
   useEffect(() => {
     if (pool.length === 0 || auctionOptions.length > 0) return;
@@ -722,7 +739,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const totalSeasonMatches = leagueTeams.length * 2;
   const midSeasonMatch = Math.floor(totalSeasonMatches / 2);
   const transferWindowOpen =
-    phase === "market" || matchesPlayed === 0 || matchesPlayed === midSeasonMatch;
+    phase === "market" || leagueMatchCount === 0 || leagueMatchCount === midSeasonMatch;
   const playerOwners = new Map<number, string>();
   Object.values(teams).forEach((team) => {
     team.squad.forEach((player) => playerOwners.set(player.ID, team.owner));
@@ -731,6 +748,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     (offer) => offer.to === currentUser && offer.status === "pending"
   ).length;
   const myPendingSignings = pendingSignings.filter((signing) => signing.owner === currentUser);
+  const myInbox = inbox[currentUser] || [];
   const currentPayroll =
     currentTeam?.salaryUsed ??
     currentTeam?.squad.reduce((sum, player) => sum + (Number(player.salary) || 0), 0) ??
@@ -738,10 +756,36 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
 
   const getPlayerStatusLabel = (player: Player) => {
     const owner = playerOwners.get(player.ID);
+    const matchesRemaining = player.unavailableUntilMatch
+      ? Math.max(0, Number(player.unavailableUntilMatch) - leagueMatchCount)
+      : 0;
+
+    if (matchesRemaining > 0) {
+      return `No disponible ${matchesRemaining} partido(s)`;
+    }
 
     if (!owner) return "Agente libre";
     if (owner === currentUser) return "Tu club";
     return `Club: ${teams[owner]?.name || owner}`;
+  };
+
+  const progressLeagueMatch = async () => {
+    try {
+      const response = await fetch(`${API_URL}/drafts/${leagueCode}/progress-match`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ username: currentUser }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        alert(errorData?.error || "No se pudo avanzar la jornada");
+      }
+    } catch (error) {
+      console.error(error);
+    }
   };
 
   const negotiateSalaryWithPlayer = async (
@@ -1065,25 +1109,23 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         .sort((a, b) => b.pts - a.pts || b.gf - a.gf)
     );
 
-    setMatchesPlayed((current) => {
-      const next = current + 1;
-      if (next >= totalSeasonMatches) {
-        const winnerName =
-          [...standings]
-            .sort((a, b) => b.pts - a.pts || b.gf - a.gf)[0]?.name || teamAName;
-        setNews((currentNews) => [
-          `Liga UFL: ${winnerName} es campeon de la temporada`,
-          ...extraNews,
-          ...currentNews,
-        ]);
-        setPhase("initial");
-        setServerPhase("selection");
-        setConfirmedOwners([]);
-        return 0;
-      }
-      setNews((currentNews) => [...extraNews, ...currentNews]);
-      return next;
-    });
+    const nextLeagueMatch = leagueMatchCount + 1;
+    if (nextLeagueMatch >= totalSeasonMatches) {
+      const winnerName =
+        [...standings]
+          .sort((a, b) => b.pts - a.pts || b.gf - a.gf)[0]?.name || teamAName;
+      setNews((currentNews) => [
+        `Liga UFL: ${winnerName} es campeon de la temporada`,
+        ...extraNews,
+        ...currentNews,
+      ]);
+      setPhase("initial");
+      setServerPhase("selection");
+      setConfirmedOwners([]);
+      return;
+    }
+
+    setNews((currentNews) => [...extraNews, ...currentNews]);
   };
 
   const submitManagerResult = () => {
@@ -1104,6 +1146,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     ];
 
     applyMatchResult(currentTeam?.name || currentUser, opponentName, myGoals, rivalGoals, extraNews);
+    progressLeagueMatch();
     setShowResultForm(false);
   };
 
@@ -1125,8 +1168,8 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         })
         .sort((a, b) => b.pts - a.pts || b.gf - a.gf)
     );
-    setMatchesPlayed((current) => current + 1);
     setNews((current) => [`Liga UFL: resultado CPU cargado para ${cpuTeamA} y ${cpuTeamB}`, ...current]);
+    progressLeagueMatch();
     setShowCpuForm(false);
   };
 
@@ -1139,6 +1182,12 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         <span>{getPlayerStatusLabel(player)}</span>
         <small>Valor: {money(player.marketValue)}</small>
         <small>Sueldo aprox temporada: {salaryRange(player)}</small>
+        {player.unavailableUntilMatch && Math.max(0, Number(player.unavailableUntilMatch) - leagueMatchCount) > 0 && (
+          <small>
+            Baja {Math.max(0, Number(player.unavailableUntilMatch) - leagueMatchCount)} partido(s):{" "}
+            {player.unavailableReason}
+          </small>
+        )}
       </div>
       {action}
     </article>
@@ -1230,7 +1279,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const renderInicio = () => (
     <section className="draft-panel">
       <h2>Noticias de la liga</h2>
-      <p>Liga {leagueCode} | Jornada {matchesPlayed}/{totalSeasonMatches}</p>
+      <p>Liga {leagueCode} | Jornada {leagueMatchCount}/{totalSeasonMatches}</p>
 
       {serverPhase === "dashboard" && (
         <button
@@ -1482,9 +1531,15 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
           <span className="form-kicker">Draft en vivo</span>
           <h1>Ultimate Fantasy League</h1>
         </div>
-        <button className="logout-btn draft-logout" onClick={onLogout}>
-          Cerrar sesion
-        </button>
+        <div className="draft-toolbar">
+          <button className="small-action inbox-btn" onClick={() => setShowInbox(true)}>
+            Buzon
+            {myInbox.length > 0 && <span className="notif-dot toolbar-dot"></span>}
+          </button>
+          <button className="logout-btn draft-logout" onClick={onLogout}>
+            Cerrar sesion
+          </button>
+        </div>
       </header>
 
       <nav className="draft-tabs bottom-tabs">
@@ -1603,6 +1658,13 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                   Valor mercado: {money(selectedPlayer.marketValue)} | Puja minima: {money(selectedPlayer.minBid)} |
                   Sueldo aprox por temporada: {salaryRange(selectedPlayer)}
                 </p>
+                {selectedPlayer.unavailableUntilMatch &&
+                  Math.max(0, Number(selectedPlayer.unavailableUntilMatch) - leagueMatchCount) > 0 && (
+                    <p>
+                      Baja por {Math.max(0, Number(selectedPlayer.unavailableUntilMatch) - leagueMatchCount)} partido(s):{" "}
+                      {selectedPlayer.unavailableReason}
+                    </p>
+                  )}
               </div>
             </div>
             <div className="stat-grid">
@@ -1611,6 +1673,27 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                   <span>{key}</span>
                   <strong>{selectedPlayer[key] ?? "-"}</strong>
                 </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showInbox && (
+        <div className="player-modal" onClick={() => setShowInbox(false)}>
+          <div className="player-modal-card" onClick={(event) => event.stopPropagation()}>
+            <button className="modal-close" onClick={() => setShowInbox(false)}>Cerrar</button>
+            <h2>Buzon del club</h2>
+            <div className="offers-panel">
+              {myInbox.length === 0 && <div className="draft-empty-state">No tienes avisos nuevos.</div>}
+              {myInbox.map((item) => (
+                <article key={item.id} className="offer-card">
+                  <strong>{item.title}</strong>
+                  <span>{item.body}</span>
+                  {item.matchUntil && (
+                    <small>Disponible otra vez desde la jornada {item.matchUntil}</small>
+                  )}
+                </article>
               ))}
             </div>
           </div>

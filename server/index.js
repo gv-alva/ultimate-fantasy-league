@@ -15,10 +15,29 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.503";
+const SERVER_VERSION = "v0.600";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
+const RANDOM_EVENT_PROBABILITY = 0.2;
+
+const randomEventTemplates = [
+  "se fue de fiesta antes del partido",
+  "amanecio con fiebre",
+  "tuvo una molestia muscular",
+  "llego tarde al entrenamiento",
+  "discutio con el cuerpo tecnico",
+  "arrastro una sobrecarga en la pierna",
+  "se resintio de una entrada fuerte",
+  "quedo afectado por un problema familiar",
+  "se torcio el tobillo en casa",
+  "se intoxico con comida en mal estado",
+  "recibio descanso obligatorio por estres",
+  "tuvo un cuadro viral inesperado",
+  "salio golpeado de una practica",
+  "quedo tocado por una gripe fuerte",
+  "sufrio una contractura de ultimo minuto",
+];
 
 const lobbies = new Map();
 const lobbyClients = new Map();
@@ -183,6 +202,73 @@ const clonePlayerForTeam = (player, salary = player.salary) => ({
   salary: Number(salary) || player.salary || 0,
 });
 
+const syncUnavailablePlayers = (draft) => {
+  Object.values(draft.teams).forEach((team) => {
+    team.squad = team.squad.map((player) => {
+      if (
+        player.unavailableUntilMatch &&
+        Number(player.unavailableUntilMatch) <= Number(draft.leagueMatchCount || 0)
+      ) {
+        const nextPlayer = { ...player };
+        delete nextPlayer.unavailableUntilMatch;
+        delete nextPlayer.unavailableReason;
+        return nextPlayer;
+      }
+
+      return player;
+    });
+  });
+};
+
+const maybeTriggerRandomEvent = (code, draft) => {
+  if (!draft.randomEvents || Math.random() >= RANDOM_EVENT_PROBABILITY) return null;
+
+  const teamsWithPlayers = Object.entries(draft.teams).filter(([, team]) => team.squad.length > 0);
+  if (teamsWithPlayers.length === 0) return null;
+
+  const [owner, team] = teamsWithPlayers[Math.floor(Math.random() * teamsWithPlayers.length)];
+  const availablePlayers = team.squad.filter(
+    (player) =>
+      !player.unavailableUntilMatch ||
+      Number(player.unavailableUntilMatch) <= Number(draft.leagueMatchCount || 0)
+  );
+
+  if (availablePlayers.length === 0) return null;
+
+  const player = availablePlayers[Math.floor(Math.random() * availablePlayers.length)];
+  const reason = randomEventTemplates[Math.floor(Math.random() * randomEventTemplates.length)];
+  const unavailableUntilMatch = Number(draft.leagueMatchCount || 0) + 2;
+
+  team.squad = team.squad.map((item) =>
+    item.ID === player.ID
+      ? {
+          ...item,
+          unavailableUntilMatch,
+          unavailableReason: reason,
+        }
+      : item
+  );
+
+  if (!draft.inbox[owner]) {
+    draft.inbox[owner] = [];
+  }
+
+  const inboxItem = {
+    id: `event-${code}-${player.ID}-${Date.now()}`,
+    title: `${player.Name} no estara disponible`,
+    body: `${player.Name} ${reason}. Estara fuera por 2 partidos.`,
+    matchUntil: unavailableUntilMatch,
+    playerId: player.ID,
+  };
+
+  draft.inbox[owner].unshift(inboxItem);
+  draft.news.unshift(
+    `Fabrizio Romano: ${player.Name} ${reason} y sera baja de ${team.name} por 2 partidos`
+  );
+
+  return inboxItem;
+};
+
 const canAddPlayerToTeam = (team, player, salary = player.salary, amount = player.marketValue) => {
   if (!team || !player) return false;
   if (team.squad.length >= TEAM_SIZE_TARGET) return false;
@@ -277,6 +363,7 @@ const getLobbyPayload = (code) => {
     salaryCap: lobby.salaryCap,
     champions: lobby.champions,
     fillCpuTeams: lobby.fillCpuTeams,
+    randomEvents: lobby.randomEvents,
     players: lobby.players,
     status: lobby.status,
   };
@@ -309,6 +396,8 @@ const getDraftPayload = (code) => {
     offers: draft.offers,
     pendingSignings: (draft.pendingSignings || []).map(getPendingSigningPayload),
     news: draft.news,
+    leagueMatchCount: draft.leagueMatchCount || 0,
+    inbox: draft.inbox || {},
   };
 };
 
@@ -359,11 +448,17 @@ const ensureDraft = (code) => {
       bids: [],
       bidCounts: {},
       transferWindowId: 0,
+      leagueMatchCount: 0,
+      randomEvents: lobby.randomEvents !== false,
       teams,
       offers: [],
       pendingSignings: [],
       negotiations: {},
       blockedNegotiations: {},
+      inbox: lobby.players.reduce((acc, owner) => {
+        acc[owner] = [];
+        return acc;
+      }, {}),
       news: ["Seleccion principal iniciada"],
     });
   }
@@ -495,6 +590,7 @@ app.post("/lobbies", (req, res) => {
     salaryCap,
     champions: Boolean(req.body.champions),
     fillCpuTeams: req.body.fillCpuTeams !== false,
+    randomEvents: req.body.randomEvents !== false,
     players: [username],
     status: "waiting",
   });
@@ -525,6 +621,10 @@ app.post("/lobbies/:code/join", (req, res) => {
 
   if (!lobby.players.includes(username)) {
     lobby.players.push(username);
+    const draft = drafts.get(code);
+    if (draft && !draft.inbox[username]) {
+      draft.inbox[username] = [];
+    }
   }
 
   sendLobbyUpdate(code);
@@ -817,15 +917,21 @@ app.post("/drafts/:code/negotiate", (req, res) => {
       draft.blockedNegotiations[negotiationKey] = draft.transferWindowId + 1;
       if (pendingSigning?.type === "offer") {
         const buyer = draft.teams[pendingSigning.owner];
-        const refund = Math.round((Number(pendingSigning.heldAmount || transferAmount) * 0.7) * 10) / 10;
+        const seller = draft.teams[pendingSigning.fromOwner];
+        const heldAmount = Number(pendingSigning.heldAmount || transferAmount) || 0;
+        const refund = Math.round((heldAmount * 0.7) * 10) / 10;
+        const sellerPenalty = Math.round((heldAmount - refund) * 10) / 10;
 
         if (buyer) {
           buyer.budget += refund;
         }
+        if (seller) {
+          seller.budget += sellerPenalty;
+        }
 
         draft.pendingSignings = draft.pendingSignings.filter((signing) => signing.id !== pendingSigning.id);
         draft.news.unshift(
-          `Fabrizio Romano: ${player.Name} rechazo a ${pendingSigning.buyerClub || pendingSigning.owner}. La operacion se cayo y solo regresaron ${refund}M`
+          `Fabrizio Romano: ${player.Name} rechazo a ${pendingSigning.buyerClub || pendingSigning.owner}. La operacion se cayo, regresaron ${refund}M al comprador y ${sellerPenalty}M quedaron para ${pendingSigning.fromClub || pendingSigning.fromOwner}`
         );
         sendDraftUpdate(code);
       }
@@ -1110,6 +1216,27 @@ app.post("/drafts/:code/start-season", (req, res) => {
 
   draft.phase = "season";
   draft.news.unshift("Liga UFL: el periodo de transferencias termino y la liga comenzo.");
+  sendDraftUpdate(code);
+  res.json(getDraftPayload(code));
+});
+
+app.post("/drafts/:code/progress-match", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username } = req.body;
+  const draft = ensureDraft(code);
+  const lobby = lobbies.get(code);
+
+  if (!draft || !lobby) {
+    return res.status(404).json({ error: "Draft no encontrado" });
+  }
+
+  if (!lobby.players.includes(username)) {
+    return res.status(403).json({ error: "No perteneces a esta liga" });
+  }
+
+  draft.leagueMatchCount = Number(draft.leagueMatchCount || 0) + 1;
+  syncUnavailablePlayers(draft);
+  maybeTriggerRandomEvent(code, draft);
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });

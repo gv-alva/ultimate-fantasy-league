@@ -347,6 +347,24 @@ body {
   white-space: nowrap;
 }
 
+.draft-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.inbox-btn {
+  position: relative;
+  width: auto;
+  min-height: 42px;
+  padding: 0 16px;
+}
+
+.toolbar-dot {
+  top: 6px;
+  right: 6px;
+}
+
 .draft-tabs {
   max-width: 1180px;
   margin: 0 auto 18px;
@@ -858,6 +876,11 @@ body {
   .draft-topbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .draft-toolbar {
+    width: 100%;
+    justify-content: space-between;
   }
 
   .draft-tabs {

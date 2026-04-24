@@ -4,7 +4,7 @@ import Draft from "./Draft";
 import Lobby from "./Lobby";
 import logo from "./assets/logo.png";
 
-const APP_VERSION = "0.503";
+const APP_VERSION = "0.600";
 
 type LobbyData = {
   code: string;
@@ -17,6 +17,7 @@ type LobbyData = {
   salaryCap?: number;
   champions?: boolean;
   fillCpuTeams?: boolean;
+  randomEvents?: boolean;
   players: string[];
   status?: "waiting" | "started";
   deleted?: boolean;
@@ -28,6 +29,7 @@ type LeagueSettings = {
   salaryCap: number;
   champions: boolean;
   fillCpuTeams: boolean;
+  randomEvents: boolean;
 };
 
 type SavedLeague = {
@@ -53,6 +55,7 @@ const getLeagueSettings = (
   salaryCap: lobby.salaryCap || fallback.salaryCap,
   champions: lobby.champions ?? fallback.champions,
   fillCpuTeams: lobby.fillCpuTeams ?? fallback.fillCpuTeams,
+  randomEvents: lobby.randomEvents ?? fallback.randomEvents,
 });
 
 const getSavedLeaguesKey = (user: string) => `ufl-saved-leagues:${user}`;
@@ -69,6 +72,7 @@ export default function App() {
   const [managers, setManagers] = useState("4");
   const [champions, setChampions] = useState(false);
   const [fillCpuTeams, setFillCpuTeams] = useState(true);
+  const [randomEvents, setRandomEvents] = useState(true);
   const [format, setFormat] = useState("Normal");
   const [money, setMoney] = useState(100);
   const [salaryCap, setSalaryCap] = useState(1800);
@@ -87,6 +91,7 @@ export default function App() {
     salaryCap: 1800,
     champions: false,
     fillCpuTeams: true,
+    randomEvents: true,
   });
 
   const persistLeague = (league: SavedLeague) => {
@@ -243,6 +248,7 @@ export default function App() {
         salaryCap: 1800,
         champions: false,
         fillCpuTeams: true,
+        randomEvents: true,
       });
     setScreen("login");
   };
@@ -262,6 +268,7 @@ export default function App() {
       salaryCap,
       champions,
       fillCpuTeams,
+      randomEvents,
     };
 
     let res: Response;
@@ -277,6 +284,7 @@ export default function App() {
           managers: managerCount,
           champions,
           fillCpuTeams,
+          randomEvents,
           format,
           money,
           salaryCap,
@@ -623,6 +631,20 @@ export default function App() {
               </div>
             </div>
 
+            <div className="switch-container">
+              <div>
+                <strong>Eventos aleatorios</strong>
+                <small>Noticias y problemas inesperados con jugadores</small>
+              </div>
+
+              <div
+                className={`switch ${randomEvents ? "active" : ""}`}
+                onClick={() => setRandomEvents(!randomEvents)}
+              >
+                <div className="switch-circle"></div>
+              </div>
+            </div>
+
             <label className="field">
               <span>Formato</span>
               <select
@@ -657,11 +679,11 @@ export default function App() {
                 value={salaryCap}
                 onChange={(e) => setSalaryCap(Number(e.target.value))}
               >
-                <option value={1400}>1.4M por semana</option>
-                <option value={1800}>1.8M por semana</option>
-                <option value={2200}>2.2M por semana</option>
-                <option value={2600}>2.6M por semana</option>
-                <option value={3200}>3.2M por semana</option>
+                <option value={1400}>1.4M por temporada</option>
+                <option value={1800}>1.8M por temporada</option>
+                <option value={2200}>2.2M por temporada</option>
+                <option value={2600}>2.6M por temporada</option>
+                <option value={3200}>3.2M por temporada</option>
               </select>
             </label>
 
