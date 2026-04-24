@@ -49,6 +49,23 @@ type TeamState = {
   squad: Player[];
 };
 
+type CpuTeam = {
+  key: string;
+  name: string;
+};
+
+type ScheduleMatch = {
+  id: string;
+  round: number;
+  homeKey: string;
+  awayKey: string;
+  played: boolean;
+  result?: {
+    homeGoals: number;
+    awayGoals: number;
+  } | null;
+};
+
 type Offer = {
   id: string;
   from: string;
@@ -85,6 +102,7 @@ type Standing = {
 
 type LeagueSettings = {
   format: string;
+  leagueType: string;
   money: number;
   salaryCap: number;
   champions: boolean;
@@ -133,6 +151,8 @@ type DraftEvent = {
   leagueMatchCount: number;
   inbox: Record<string, InboxItem[]>;
   standings: Standing[];
+  schedule: ScheduleMatch[][];
+  cpuTeams: CpuTeam[];
 };
 
 const tabs: Tab[] = ["Inicio", "Club", "Tabla de liga", "Transferencia"];
@@ -491,6 +511,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [showInbox, setShowInbox] = useState(false);
   const [showResultForm, setShowResultForm] = useState(false);
   const [showCpuForm, setShowCpuForm] = useState(false);
+  const [showCpuRenameForm, setShowCpuRenameForm] = useState(false);
   const [clubName, setClubName] = useState("");
   const [opponentName, setOpponentName] = useState("");
   const [goalsFor, setGoalsFor] = useState("0");
@@ -504,6 +525,9 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [cpuTeamB, setCpuTeamB] = useState("");
   const [cpuPointsA, setCpuPointsA] = useState("3");
   const [cpuPointsB, setCpuPointsB] = useState("0");
+  const [schedule, setSchedule] = useState<ScheduleMatch[][]>([]);
+  const [cpuTeams, setCpuTeams] = useState<CpuTeam[]>([]);
+  const [tableView, setTableView] = useState<"tabla" | "partidos">("tabla");
 
   useEffect(() => {
     setInitialPicks({});
@@ -556,6 +580,8 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       setLeagueMatchCount(draft.leagueMatchCount || 0);
       setInbox(draft.inbox || {});
       setStandings(draft.standings || []);
+      setSchedule(draft.schedule || []);
+      setCpuTeams(draft.cpuTeams || []);
 
       if (draft.phase === "dashboard") {
         setPhase("initial");
@@ -738,7 +764,10 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const hasConfirmed = confirmedOwners.includes(currentUser);
   const isOrganizer = currentUser === organizer;
   const currentAuctionPlayers = auctionOptions[auctionStage] || [];
-  const totalSeasonMatches = leagueTeams.length * 2;
+  const totalSeasonMatches =
+    settings.leagueType === "Fantasia"
+      ? standings.length * Math.max(standings.length - 1, 0)
+      : leagueTeams.length * 2;
   const midSeasonMatch = Math.floor(totalSeasonMatches / 2);
   const transferWindowOpen =
     phase === "market" || leagueMatchCount === 0 || leagueMatchCount === midSeasonMatch;
@@ -762,6 +791,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const mvpOptions = opponentIsManager
     ? [...currentTeamPlayers, ...opponentPlayers]
     : currentTeamPlayers;
+  const standingsNameByKey = new Map(standings.map((team) => [team.key, team.name]));
+  const matchesPerRound = standings.length > 0 ? Math.max(1, standings.length / 2) : 1;
+  const currentRound = settings.leagueType === "Fantasia"
+    ? Math.min(schedule.length || 1, Math.floor(leagueMatchCount / matchesPerRound) + 1)
+    : 1;
 
   const getPlayerStatusLabel = (player: Player) => {
     const owner = playerOwners.get(player.ID);
@@ -1114,6 +1148,33 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       return;
     }
 
+    const myGoals = Number(goalsFor) || 0;
+    const rivalGoals = Number(goalsAgainst) || 0;
+    const myGoalEntries = normalizeGoalEntries(teamScorers, currentTeamPlayers);
+    const rivalGoalEntries = normalizeGoalEntries(opponentScorers, opponentPlayers);
+    const myGoalCount = myGoalEntries.reduce((sum, row) => sum + row.goals, 0);
+    const rivalGoalCount = rivalGoalEntries.reduce((sum, row) => sum + row.goals, 0);
+
+    if (myGoalCount > myGoals) {
+      alert("Tus goleadores no pueden sumar mas goles que tu marcador");
+      return;
+    }
+
+    if (rivalGoalCount > rivalGoals) {
+      alert("Los goleadores del rival no pueden sumar mas goles que su marcador");
+      return;
+    }
+
+    if (myGoals === 0 && myGoalEntries.length > 0) {
+      alert("Si el marcador es 0 no puedes agregar goleadores");
+      return;
+    }
+
+    if (rivalGoals === 0 && rivalGoalEntries.length > 0) {
+      alert("Si el rival hizo 0 no puedes agregar goleadores para ese lado");
+      return;
+    }
+
     const response = await fetch(`${API_URL}/drafts/${leagueCode}/results`, {
       method: "POST",
       headers: {
@@ -1122,10 +1183,10 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       body: JSON.stringify({
         username: currentUser,
         opponentName,
-        goalsFor: Number(goalsFor),
-        goalsAgainst: Number(goalsAgainst),
-        teamScorers: normalizeGoalEntries(teamScorers, currentTeamPlayers),
-        opponentScorers: normalizeGoalEntries(opponentScorers, opponentPlayers),
+        goalsFor: myGoals,
+        goalsAgainst: rivalGoals,
+        teamScorers: myGoalEntries,
+        opponentScorers: rivalGoalEntries,
         teamCards: Number(teamCards) || 0,
         opponentCards: Number(opponentCards) || 0,
         mvpPlayerName:
@@ -1181,6 +1242,30 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setCpuTeamB("");
     setCpuPointsA("3");
     setCpuPointsB("0");
+  };
+
+  const renameCpuTeam = async (teamKey: string, currentName: string) => {
+    const nextName = window.prompt("Nuevo nombre del equipo CPU:", currentName);
+
+    if (!nextName || !nextName.trim()) return;
+
+    const response = await fetch(`${API_URL}/drafts/${leagueCode}/cpu-team-name`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+        teamKey,
+        name: nextName.trim(),
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      alert(errorData?.error || "No se pudo renombrar el equipo CPU");
+      return;
+    }
   };
 
   const renderPlayerCard = (player: Player, action?: ReactNode) => (
@@ -1355,26 +1440,76 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     <section className="draft-panel">
       <h2>Tabla de liga</h2>
       <div className="table-actions">
+        <button
+          className={`btn ${tableView === "tabla" ? "btn-login" : "btn-outline"} compact-btn`}
+          onClick={() => setTableView("tabla")}
+        >
+          TABLA
+        </button>
+        <button
+          className={`btn ${tableView === "partidos" ? "btn-login" : "btn-outline"} compact-btn`}
+          onClick={() => setTableView("partidos")}
+        >
+          PARTIDOS
+        </button>
         <button className="btn btn-login compact-btn" onClick={() => setShowResultForm(true)}>
           AGREGAR RESULTADO
         </button>
         {isOrganizer && settings.fillCpuTeams && (
-          <button className="btn btn-outline compact-btn" onClick={() => setShowCpuForm(true)}>
-            RESULTADO CPU
-          </button>
+          <>
+            <button className="btn btn-outline compact-btn" onClick={() => setShowCpuForm(true)}>
+              RESULTADO CPU
+            </button>
+            <button className="btn btn-outline compact-btn" onClick={() => setShowCpuRenameForm(true)}>
+              RENOMBRAR CPU
+            </button>
+          </>
         )}
       </div>
-      <div className="league-table">
-        {standings.map((team, index) => (
-          <div key={team.name} className="league-row rich">
-            <span>{index + 1}</span>
-            <strong>{team.name}</strong>
-            <small>{team.real ? "Real" : "Generado"}</small>
-            <em>{team.champions ? "Champions" : "Liga"}</em>
-            <b>{team.pts} pts</b>
+      {tableView === "tabla" ? (
+        <div className="league-table">
+          {standings.map((team, index) => (
+            <div key={team.key} className="league-row rich">
+              <span>{index + 1}</span>
+              <strong>{team.name}</strong>
+              <small>{team.real ? "Real" : "CPU"}</small>
+              <em>{team.champions ? "Champions" : "Liga"}</em>
+              <b>{team.pts} pts</b>
+            </div>
+          ))}
+        </div>
+      ) : settings.leagueType === "Fantasia" ? (
+        <div className="draft-list">
+          <div className="draft-list-item">
+            <strong>Jornada actual: {currentRound}/{schedule.length || 1}</strong>
           </div>
-        ))}
-      </div>
+          {schedule.map((roundMatches, index) => (
+            <div
+              key={`round-${index + 1}`}
+              className={`draft-list-item ${currentRound === index + 1 ? "current-round" : ""}`}
+            >
+              <strong>Jornada {index + 1}</strong>
+              <div className="schedule-round">
+                {roundMatches.map((match) => (
+                  <div key={match.id} className="schedule-match">
+                    <span>{standingsNameByKey.get(match.homeKey) || match.homeKey}</span>
+                    <strong>
+                      {match.played && match.result
+                        ? `${match.result.homeGoals}-${match.result.awayGoals}`
+                        : "vs"}
+                    </strong>
+                    <span>{standingsNameByKey.get(match.awayKey) || match.awayKey}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="draft-empty-state">
+          El calendario por jornadas solo se muestra en ligas de fantasia.
+        </div>
+      )}
     </section>
   );
 
@@ -1719,6 +1854,28 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
               </label>
             </div>
             <button className="btn btn-login" onClick={submitCpuResult}>GUARDAR CPU</button>
+          </div>
+        </div>
+      )}
+
+      {showCpuRenameForm && (
+        <div className="player-modal" onClick={() => setShowCpuRenameForm(false)}>
+          <div className="player-modal-card" onClick={(event) => event.stopPropagation()}>
+            <button className="modal-close" onClick={() => setShowCpuRenameForm(false)}>Cerrar</button>
+            <h2>Renombrar equipos CPU</h2>
+            <div className="offers-panel">
+              {cpuTeams.length === 0 && <div className="draft-empty-state">No hay equipos CPU en esta liga.</div>}
+              {cpuTeams.map((team) => (
+                <article key={team.key} className="offer-card">
+                  <strong>{team.name}</strong>
+                  <div className="offer-actions">
+                    <button className="small-action" onClick={() => renameCpuTeam(team.key, team.name)}>
+                      CAMBIAR NOMBRE
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
           </div>
         </div>
       )}

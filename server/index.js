@@ -283,6 +283,7 @@ const sortStandings = (standings = []) =>
 
 const syncStandingsWithTeams = (draft, lobby) => {
   if (!draft || !lobby) return;
+  ensureCpuTeams(draft, lobby);
 
   const realTeams = lobby.players.map((owner) => ({
     key: owner,
@@ -291,10 +292,7 @@ const syncStandingsWithTeams = (draft, lobby) => {
   }));
   const size = getLeagueSize(lobby.format);
   const generatedTeams = lobby.fillCpuTeams
-    ? generatedClubNames
-        .filter((name) => !realTeams.some((team) => team.name === name))
-        .slice(0, Math.max(size - realTeams.length, 0))
-        .map((name) => ({ key: name, name, real: false }))
+    ? (draft.cpuTeams || []).map((team) => ({ key: team.key, name: team.name, real: false }))
     : [];
   const allTeams = [...realTeams, ...generatedTeams].slice(
     0,
@@ -339,6 +337,136 @@ const appendSeasonWinnerIfNeeded = (draft) => {
 
   draft.seasonWinnerAnnounced = true;
   draft.news.unshift(`Liga UFL: ${winner.name} es campeon de la temporada`);
+};
+
+const buildFantasySchedule = (teamKeys = []) => {
+  const workingKeys = [...teamKeys];
+  const isOdd = workingKeys.length % 2 !== 0;
+
+  if (isOdd) {
+    workingKeys.push("__BYE__");
+  }
+
+  const rounds = [];
+  let rotation = [...workingKeys];
+  const halfRounds = rotation.length - 1;
+
+  for (let roundIndex = 0; roundIndex < halfRounds; roundIndex += 1) {
+    const roundMatches = [];
+
+    for (let matchIndex = 0; matchIndex < rotation.length / 2; matchIndex += 1) {
+      const homeKey = rotation[matchIndex];
+      const awayKey = rotation[rotation.length - 1 - matchIndex];
+
+      if (homeKey !== "__BYE__" && awayKey !== "__BYE__") {
+        roundMatches.push({
+          id: `round-${roundIndex + 1}-${homeKey}-${awayKey}`,
+          round: roundIndex + 1,
+          homeKey,
+          awayKey,
+          played: false,
+          result: null,
+        });
+      }
+    }
+
+    rounds.push(roundMatches);
+    rotation = [
+      rotation[0],
+      rotation[rotation.length - 1],
+      ...rotation.slice(1, rotation.length - 1),
+    ];
+  }
+
+  const reverseRounds = rounds.map((roundMatches, roundIndex) =>
+    roundMatches.map((match) => ({
+      ...match,
+      id: `round-${halfRounds + roundIndex + 1}-${match.awayKey}-${match.homeKey}`,
+      round: halfRounds + roundIndex + 1,
+      homeKey: match.awayKey,
+      awayKey: match.homeKey,
+      played: false,
+      result: null,
+    }))
+  );
+
+  return [...rounds, ...reverseRounds];
+};
+
+const ensureCpuTeams = (draft, lobby) => {
+  if (!lobby.fillCpuTeams) {
+    draft.cpuTeams = [];
+    return;
+  }
+
+  const size = getLeagueSize(lobby.format);
+  const requiredCpuTeams = Math.max(size - lobby.players.length, 0);
+  const currentCpuTeams = draft.cpuTeams || [];
+
+  if (currentCpuTeams.length === requiredCpuTeams) return;
+
+  draft.cpuTeams = Array.from({ length: requiredCpuTeams }, (_, index) => ({
+    key: currentCpuTeams[index]?.key || `cpu-${index + 1}`,
+    name: currentCpuTeams[index]?.name || generatedClubNames[index] || `CPU ${index + 1}`,
+  }));
+};
+
+const syncFantasySchedule = (draft, lobby) => {
+  if (lobby.leagueType !== "Fantasia") {
+    draft.schedule = [];
+    return;
+  }
+
+  ensureCpuTeams(draft, lobby);
+  const teamKeys = [
+    ...lobby.players,
+    ...(draft.cpuTeams || []).map((team) => team.key),
+  ];
+
+  if (!draft.schedule || draft.schedule.length === 0) {
+    draft.schedule = buildFantasySchedule(teamKeys);
+    return;
+  }
+
+  const existingMatches = new Map(
+    draft.schedule
+      .flat()
+      .map((match) => [`${match.round}:${match.homeKey}:${match.awayKey}`, match])
+  );
+  const freshSchedule = buildFantasySchedule(teamKeys);
+  draft.schedule = freshSchedule.map((roundMatches) =>
+    roundMatches.map((match) => existingMatches.get(`${match.round}:${match.homeKey}:${match.awayKey}`) || match)
+  );
+};
+
+const getTeamNameByKey = (draft, key) => {
+  if (draft.teams[key]) return draft.teams[key].name || key;
+  return draft.cpuTeams?.find((team) => team.key === key)?.name || key;
+};
+
+const markScheduleMatchPlayed = (draft, homeKey, awayKey, result) => {
+  if (!draft.schedule?.length) return;
+
+  for (const roundMatches of draft.schedule) {
+    const nextMatch = roundMatches.find(
+      (match) =>
+        !match.played &&
+        ((match.homeKey === homeKey && match.awayKey === awayKey) ||
+          (match.homeKey === awayKey && match.awayKey === homeKey))
+    );
+
+    if (nextMatch) {
+      nextMatch.played = true;
+      nextMatch.result =
+        nextMatch.homeKey === homeKey
+          ? result
+          : {
+              homeGoals: result.awayGoals,
+              awayGoals: result.homeGoals,
+            };
+      return;
+    }
+  }
 };
 
 const syncUnavailablePlayers = (draft) => {
@@ -498,6 +626,7 @@ const getLobbyPayload = (code) => {
     maxManagers: lobby.maxManagers,
     managers: lobby.maxManagers,
     format: lobby.format,
+    leagueType: lobby.leagueType,
     money: lobby.money,
     salaryCap: lobby.salaryCap,
     champions: lobby.champions,
@@ -544,6 +673,8 @@ const getDraftPayload = (code) => {
     leagueMatchCount: draft.leagueMatchCount || 0,
     inbox: draft.inbox || {},
     standings: draft.standings || [],
+    schedule: draft.schedule || [],
+    cpuTeams: draft.cpuTeams || [],
   };
 };
 
@@ -601,6 +732,7 @@ const ensureDraft = (code) => {
       leagueMatchCount: 0,
       randomEvents: lobby.randomEvents !== false,
       teams,
+      cpuTeams: [],
       offers: [],
       pendingSignings: [],
       negotiations: {},
@@ -610,12 +742,14 @@ const ensureDraft = (code) => {
         return acc;
       }, {}),
       standings: [],
+      schedule: [],
       seasonWinnerAnnounced: false,
       news: ["Seleccion principal iniciada"],
     });
   }
 
   syncStandingsWithTeams(drafts.get(code), lobby);
+  syncFantasySchedule(drafts.get(code), lobby);
   return drafts.get(code);
 };
 
@@ -739,6 +873,7 @@ app.post("/lobbies", async (req, res) => {
     maxManagers,
     managers: maxManagers,
     format: req.body.format || "Normal",
+    leagueType: req.body.leagueType || "Real",
     money: Number(req.body.money) || 100,
     salaryCap,
     champions: Boolean(req.body.champions),
@@ -1454,7 +1589,21 @@ app.post("/drafts/:code/results", (req, res) => {
     draft.news.unshift(`Liga UFL: jugador del partido ${mvpPlayerName}`);
   }
 
-  if (draft.leagueMatchCount >= getLeagueSize(lobby.format) * 2) {
+  const myStanding = draft.standings.find((team) => team.name === myTeamName);
+  const opponentStanding = draft.standings.find((team) => team.name === opponentName);
+  if (myStanding && opponentStanding) {
+    markScheduleMatchPlayed(draft, myStanding.key, opponentStanding.key, {
+      homeGoals: scoreA,
+      awayGoals: scoreB,
+    });
+  }
+
+  const totalMatches =
+    lobby.leagueType === "Fantasia"
+      ? draft.standings.length * Math.max(draft.standings.length - 1, 0)
+      : getLeagueSize(lobby.format) * 2;
+
+  if (draft.leagueMatchCount >= totalMatches) {
     appendSeasonWinnerIfNeeded(draft);
   }
 
@@ -1499,10 +1648,59 @@ app.post("/drafts/:code/cpu-result", (req, res) => {
   maybeTriggerRandomEvent(code, draft);
   draft.news.unshift(`Liga UFL: resultado CPU cargado para ${cpuTeamA} y ${cpuTeamB}`);
 
-  if (draft.leagueMatchCount >= getLeagueSize(lobby.format) * 2) {
+  const totalMatches =
+    lobby.leagueType === "Fantasia"
+      ? draft.standings.length * Math.max(draft.standings.length - 1, 0)
+      : getLeagueSize(lobby.format) * 2;
+
+  if (draft.leagueMatchCount >= totalMatches) {
     appendSeasonWinnerIfNeeded(draft);
   }
 
+  const cpuTeamAStanding = draft.standings.find((team) => team.name === cpuTeamA);
+  const cpuTeamBStanding = draft.standings.find((team) => team.name === cpuTeamB);
+  const derivedResult =
+    Number(cpuPointsA) === Number(cpuPointsB)
+      ? { homeGoals: 1, awayGoals: 1 }
+      : Number(cpuPointsA) > Number(cpuPointsB)
+        ? { homeGoals: 1, awayGoals: 0 }
+        : { homeGoals: 0, awayGoals: 1 };
+
+  if (cpuTeamAStanding && cpuTeamBStanding) {
+    markScheduleMatchPlayed(draft, cpuTeamAStanding.key, cpuTeamBStanding.key, derivedResult);
+  }
+
+  sendDraftUpdate(code);
+  res.json(getDraftPayload(code));
+});
+
+app.post("/drafts/:code/cpu-team-name", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username, teamKey, name } = req.body;
+  const draft = ensureDraft(code);
+  const lobby = lobbies.get(code);
+
+  if (!draft || !lobby) {
+    return res.status(404).json({ error: "Draft no encontrado" });
+  }
+
+  if (lobby.creator !== username) {
+    return res.status(403).json({ error: "Solo el organizador puede renombrar equipos CPU" });
+  }
+
+  const trimmedName = String(name || "").trim();
+  if (!trimmedName) {
+    return res.status(400).json({ error: "Escribe un nombre valido" });
+  }
+
+  const cpuTeam = (draft.cpuTeams || []).find((team) => team.key === teamKey);
+  if (!cpuTeam) {
+    return res.status(404).json({ error: "Equipo CPU no encontrado" });
+  }
+
+  cpuTeam.name = trimmedName;
+  syncStandingsWithTeams(draft, lobby);
+  draft.news.unshift(`Liga UFL: el organizador renombro un equipo CPU a ${trimmedName}`);
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });

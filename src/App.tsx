@@ -4,7 +4,7 @@ import Draft from "./Draft";
 import Lobby from "./Lobby";
 import logo from "./assets/logo.png";
 
-const APP_VERSION = "0.601";
+const APP_VERSION = "0.602";
 
 type LobbyData = {
   code: string;
@@ -13,6 +13,7 @@ type LobbyData = {
   maxManagers?: number;
   managers?: number;
   format?: string;
+  leagueType?: string;
   money?: number;
   salaryCap?: number;
   champions?: boolean;
@@ -25,6 +26,7 @@ type LobbyData = {
 
 type LeagueSettings = {
   format: string;
+  leagueType: string;
   money: number;
   salaryCap: number;
   champions: boolean;
@@ -51,6 +53,7 @@ const getLeagueSettings = (
   fallback: LeagueSettings
 ): LeagueSettings => ({
   format: lobby.format || fallback.format,
+  leagueType: lobby.leagueType || fallback.leagueType,
   money: lobby.money || fallback.money,
   salaryCap: lobby.salaryCap || fallback.salaryCap,
   champions: lobby.champions ?? fallback.champions,
@@ -74,6 +77,7 @@ export default function App() {
   const [fillCpuTeams, setFillCpuTeams] = useState(true);
   const [randomEvents, setRandomEvents] = useState(true);
   const [format, setFormat] = useState("Normal");
+  const [leagueType, setLeagueType] = useState("Real");
   const [money, setMoney] = useState(100);
   const [salaryCap, setSalaryCap] = useState(1800);
 
@@ -87,6 +91,7 @@ export default function App() {
   const [savedLeagues, setSavedLeagues] = useState<SavedLeague[]>([]);
   const [leagueSettings, setLeagueSettings] = useState<LeagueSettings>({
     format: "Normal",
+    leagueType: "Real",
     money: 100,
     salaryCap: 1800,
     champions: false,
@@ -244,6 +249,7 @@ export default function App() {
     setLobbyStatus("waiting");
       setLeagueSettings({
         format: "Normal",
+        leagueType: "Real",
         money: 100,
         salaryCap: 1800,
         champions: false,
@@ -264,6 +270,7 @@ export default function App() {
 
     const nextSettings = {
       format,
+      leagueType,
       money,
       salaryCap,
       champions,
@@ -286,6 +293,7 @@ export default function App() {
           fillCpuTeams,
           randomEvents,
           format,
+          leagueType,
           money,
           salaryCap,
         }),
@@ -655,6 +663,18 @@ export default function App() {
                 <option>Normal</option>
                 <option>Corta</option>
                 <option>Pequena</option>
+              </select>
+            </label>
+
+            <label className="field">
+              <span>Tipo de liga</span>
+              <select
+                className="input"
+                value={leagueType}
+                onChange={(e) => setLeagueType(e.target.value)}
+              >
+                <option>Real</option>
+                <option>Fantasia</option>
               </select>
             </label>
 

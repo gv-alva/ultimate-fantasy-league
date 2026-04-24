@@ -439,6 +439,10 @@ body {
   background: #1e293b;
 }
 
+.current-round {
+  border: 1px solid rgba(234, 179, 8, 0.35);
+}
+
 .league-row {
   display: grid;
   grid-template-columns: 32px 1fr auto;
@@ -461,6 +465,27 @@ body {
   background: rgba(30, 41, 59, 0.7);
   color: #94a3b8;
   text-align: center;
+}
+
+.schedule-round {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.schedule-match {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #02040a;
+}
+
+.schedule-match span:last-child {
+  text-align: right;
 }
 
 .transfer-panel {
