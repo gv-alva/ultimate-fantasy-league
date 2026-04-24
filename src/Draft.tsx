@@ -394,20 +394,20 @@ const buildAuctionStages = (pool: Player[], leagueSeed: string) => {
       (player) => !used.has(player.ID) && player.OVR >= 85
     );
     const lowCandidates = eligiblePool.filter(
-      (player) => !used.has(player.ID) && player.OVR <= 84
+      (player) => !used.has(player.ID) && player.OVR >= 80 && player.OVR <= 84
     );
 
     const highPlayers = fillSlots(
       highCandidates,
       used,
-      5,
+      3,
       hashText(`${leagueSeed}:auction-high:${stageIndex}`),
       "auction"
     );
     const lowPlayers = fillSlots(
       lowCandidates,
       used,
-      5,
+      7,
       hashText(`${leagueSeed}:auction-low:${stageIndex}`),
       "auction"
     );

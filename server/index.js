@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.502";
+const SERVER_VERSION = "v0.503";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -196,6 +196,9 @@ const canAddPlayerToTeam = (team, player, salary = player.salary, amount = playe
 const getNegotiationKey = (username, playerId) => `${username}:${playerId}`;
 const getBlockedNegotiationWindow = (draft, username, playerId) =>
   draft.blockedNegotiations?.[getNegotiationKey(username, playerId)] || 0;
+
+const getNegotiationBlockedMessage = (playerName) =>
+  `${playerName} no quiere negociar contigo este periodo de transferencias`;
 
 const getNegotiationTarget = (code, username, player) => {
   const minSalary = Number(player.salaryMin) || Number(player.salary) || 10;
@@ -781,7 +784,7 @@ app.post("/drafts/:code/negotiate", (req, res) => {
 
   if (draft.transferWindowId < blockedUntilWindow) {
     return res.status(400).json({
-      error: `${player.Name} bloqueo negociaciones contigo hasta la siguiente fecha de transferencias`,
+      error: getNegotiationBlockedMessage(player.Name),
       attemptsLeft: 0,
     });
   }
@@ -812,6 +815,21 @@ app.post("/drafts/:code/negotiate", (req, res) => {
     if (negotiation.attempts >= MAX_NEGOTIATION_ATTEMPTS) {
       delete draft.negotiations[negotiationKey];
       draft.blockedNegotiations[negotiationKey] = draft.transferWindowId + 1;
+      if (pendingSigning?.type === "offer") {
+        const buyer = draft.teams[pendingSigning.owner];
+        const refund = Math.round((Number(pendingSigning.heldAmount || transferAmount) * 0.7) * 10) / 10;
+
+        if (buyer) {
+          buyer.budget += refund;
+        }
+
+        draft.pendingSignings = draft.pendingSignings.filter((signing) => signing.id !== pendingSigning.id);
+        draft.news.unshift(
+          `Fabrizio Romano: ${player.Name} rechazo a ${pendingSigning.buyerClub || pendingSigning.owner}. La operacion se cayo y solo regresaron ${refund}M`
+        );
+        sendDraftUpdate(code);
+      }
+
       return res.status(400).json({
         error: `${player.Name} rechazo la negociacion salarial y te bloqueo hasta la siguiente fecha de transferencias`,
         attemptsLeft: 0,
@@ -838,13 +856,18 @@ app.post("/drafts/:code/negotiate", (req, res) => {
         return res.status(400).json({ error: "La transferencia ya no esta disponible" });
       }
 
-      if (!canAddPlayerToTeam(buyer, player, offeredSalary, transferAmount)) {
+      const salaryAfter = getTeamPayroll(buyer) + (Number(offeredSalary) || 0);
+
+      if (
+        buyer.squad.length >= TEAM_SIZE_TARGET ||
+        teamOwnsPlayer(buyer, player.ID) ||
+        salaryAfter > (Number(buyer.salaryCap) || DEFAULT_SALARY_CAP)
+      ) {
         return res.status(400).json({ error: "No puedes cerrar este contrato por presupuesto, masa salarial o plantilla" });
       }
 
       seller.squad = seller.squad.filter((item) => item.ID !== player.ID);
-      seller.budget += transferAmount;
-      buyer.budget -= transferAmount;
+      seller.budget += Number(pendingSigning.heldAmount || transferAmount) || 0;
       buyer.squad.push(clonePlayerForTeam(player, offeredSalary));
       draft.pendingSignings = draft.pendingSignings.filter((signing) => signing.id !== pendingSigning.id);
       draft.news.unshift(
@@ -947,9 +970,14 @@ app.post("/drafts/:code/offers", (req, res) => {
   const to = Object.keys(draft.teams).find((owner) =>
     draft.teams[owner].squad.some((item) => String(item.ID) === String(playerId))
   );
+  const blockedUntilWindow = getBlockedNegotiationWindow(draft, from, playerId);
 
   if (!player || !to || to === from) {
     return res.status(400).json({ error: "No se puede ofertar por este jugador" });
+  }
+
+  if (draft.transferWindowId < blockedUntilWindow) {
+    return res.status(409).json({ error: getNegotiationBlockedMessage(player.Name) });
   }
 
   const existingPendingOffer = draft.offers.find(
@@ -962,6 +990,16 @@ app.post("/drafts/:code/offers", (req, res) => {
 
   if (existingPendingOffer) {
     return res.status(409).json({ error: "Ya se envio una oferta y sigue pendiente de respuesta" });
+  }
+
+  const existingPendingSigning = draft.pendingSignings.find(
+    (signing) =>
+      signing.owner === from &&
+      String(signing.player.ID) === String(playerId)
+  );
+
+  if (existingPendingSigning) {
+    return res.status(409).json({ error: "Ese fichaje ya esta pendiente de negociacion salarial" });
   }
 
   const buyer = draft.teams[from];
@@ -1025,14 +1063,17 @@ app.post("/drafts/:code/offers/:offerId", (req, res) => {
     draft.news.unshift(
       `Fabrizio Romano: ${seller.name} acepto la oferta de ${buyer.name} por ${offer.player.Name}. Falta negociar el sueldo del jugador.`
     );
+    buyer.budget -= offer.amount;
     draft.pendingSignings.unshift({
       id: `offer-${offer.player.ID}-${Date.now()}-${offer.from}`,
       owner: offer.from,
+      buyerClub: buyer.name,
       fromOwner: offer.to,
       fromClub: seller.name,
       type: "offer",
       player: offer.player,
       amount: offer.amount,
+      heldAmount: offer.amount,
     });
   }
 
