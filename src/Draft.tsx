@@ -795,6 +795,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     ? [...currentTeamPlayers, ...opponentPlayers]
     : currentTeamPlayers;
   const standingsNameByKey = new Map(standings.map((team) => [team.key, team.name]));
+  cpuTeams.forEach((team) => standingsNameByKey.set(team.key, team.name));
   const visibleRounds = settings.leagueType === "Fantasia"
     ? schedule.slice(visibleRoundStart - 1, visibleRoundStart + 4)
     : [];

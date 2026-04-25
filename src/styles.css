@@ -107,6 +107,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 16px;
+  overflow: auto;
 }
 
 .overlay-card {
@@ -115,6 +117,8 @@ body {
   background: #060b17;
   padding: 25px;
   border-radius: 25px;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
 }
 
 /* CREATE FORM */
@@ -323,7 +327,7 @@ body {
   width: 100%;
   background: #02040a;
   color: white;
-  padding: 22px 22px 104px;
+  padding: 22px 22px 148px;
 }
 
 .draft-topbar {
@@ -413,6 +417,7 @@ body {
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 18px;
   background: #060b17;
+  margin-bottom: 24px;
 }
 
 .draft-panel h2 {
@@ -926,12 +931,23 @@ body {
 
 @media (max-width: 760px) {
   .draft-shell {
-    padding: 16px;
+    padding: 16px 16px 156px;
   }
 
   .draft-topbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .overlay {
+    align-items: flex-start;
+  }
+
+  .overlay-card {
+    width: 100%;
+    max-width: none;
+    padding: 18px;
+    border-radius: 18px;
   }
 
   .draft-toolbar {
@@ -959,6 +975,11 @@ body {
   .compact-btn,
   .small-action {
     width: 100%;
+  }
+
+  .btn {
+    min-height: 52px;
+    padding: 14px;
   }
 
   .transfer-layout {
