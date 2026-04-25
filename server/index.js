@@ -1490,7 +1490,7 @@ app.post("/drafts/:code/train", (req, res) => {
     OVR: nextOverall,
     marketValue: Number(player.marketValue || 0) + cost,
   };
-  if (draft.organizer && draft.organizer !== username) {
+  if (draft.organizer) {
     if (!draft.inbox[draft.organizer]) {
       draft.inbox[draft.organizer] = [];
     }
@@ -1785,17 +1785,14 @@ app.post("/drafts/:code/cpu-result", (req, res) => {
     return res.status(400).json({ error: "Selecciona dos equipos CPU distintos" });
   }
 
-  draft.standings = sortStandings(
-    draft.standings.map((team) => {
-      if (team.name === cpuTeamA) {
-        return { ...team, pts: team.pts + Number(cpuPointsA), played: team.played + 1 };
-      }
-      if (team.name === cpuTeamB) {
-        return { ...team, pts: team.pts + Number(cpuPointsB), played: team.played + 1 };
-      }
-      return team;
-    })
-  );
+  const derivedResult =
+    Number(cpuPointsA) === Number(cpuPointsB)
+      ? { homeGoals: 1, awayGoals: 1 }
+      : Number(cpuPointsA) > Number(cpuPointsB)
+        ? { homeGoals: 2, awayGoals: 1 }
+        : { homeGoals: 1, awayGoals: 2 };
+
+  applyStandingResult(draft, cpuTeamA, cpuTeamB, derivedResult.homeGoals, derivedResult.awayGoals);
 
   draft.leagueMatchCount = Number(draft.leagueMatchCount || 0) + 1;
   syncUnavailablePlayers(draft);
@@ -1813,13 +1810,6 @@ app.post("/drafts/:code/cpu-result", (req, res) => {
 
   const cpuTeamAStanding = draft.standings.find((team) => team.name === cpuTeamA);
   const cpuTeamBStanding = draft.standings.find((team) => team.name === cpuTeamB);
-  const derivedResult =
-    Number(cpuPointsA) === Number(cpuPointsB)
-      ? { homeGoals: 1, awayGoals: 1 }
-      : Number(cpuPointsA) > Number(cpuPointsB)
-        ? { homeGoals: 1, awayGoals: 0 }
-        : { homeGoals: 0, awayGoals: 1 };
-
   if (cpuTeamAStanding && cpuTeamBStanding) {
     markScheduleMatchPlayed(draft, cpuTeamAStanding.key, cpuTeamBStanding.key, derivedResult);
   }

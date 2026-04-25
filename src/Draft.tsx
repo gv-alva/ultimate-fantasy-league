@@ -489,7 +489,7 @@ const decorateTeams = (
 
 export default function Draft({ leagueCode, players, currentUser, settings, onLogout }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("Inicio");
-  const [clubView, setClubView] = useState<"plantilla" | "training">("plantilla");
+  const [clubView, setClubView] = useState<"plantilla" | "training" | "sponsor">("plantilla");
   const [phase, setPhase] = useState<DraftPhase>("initial");
   const [serverPhase, setServerPhase] = useState<ServerPhase>("selection");
   const [organizer, setOrganizer] = useState("");
@@ -552,6 +552,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setOffers([]);
     setPendingSignings([]);
     setLeagueMatchCount(0);
+    setActiveTab("Inicio");
+    setClubView("plantilla");
+    setOrganizer("");
+    setServerPhase("selection");
+    setConfirmedOwners([]);
   }, [leagueCode]);
 
   useEffect(() => {
@@ -1462,7 +1467,6 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         {salary(currentPayroll)}/{salary(currentTeam?.salaryCap || settings.salaryCap)} | Plantilla:{" "}
         {currentTeam?.squad.length || 0}/{TEAM_SIZE_TARGET}
       </p>
-      {renderSponsor()}
       <div className="offer-switch club-mode-switch">
         <button className={clubView === "plantilla" ? "active" : ""} onClick={() => setClubView("plantilla")}>
           Plantilla
@@ -1470,8 +1474,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         <button className={clubView === "training" ? "active" : ""} onClick={() => setClubView("training")}>
           Entrenamiento
         </button>
+        <button className={clubView === "sponsor" ? "active" : ""} onClick={() => setClubView("sponsor")}>
+          Patrocinador
+        </button>
       </div>
-      {clubView === "plantilla" ? (
+      {clubView === "plantilla" && (
         <div className="card-grid">
           {(currentTeam?.squad || []).map((player) =>
             renderPlayerCard(
@@ -1488,7 +1495,8 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
             )
           )}
         </div>
-      ) : (
+      )}
+      {clubView === "training" && (
         <div className="sponsor-card">
           <h3>Entrenamiento del club</h3>
           <div className="offers-panel">
@@ -1511,6 +1519,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
           </div>
         </div>
       )}
+      {clubView === "sponsor" && renderSponsor()}
     </section>
   );
 

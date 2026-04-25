@@ -482,7 +482,7 @@ export default function App() {
   if (screen === "draft") {
     return (
       <Draft
-        key={leagueCode}
+        key={`${leagueCode}-${currentUser}`}
         leagueCode={leagueCode}
         players={players}
         currentUser={currentUser}
