@@ -138,6 +138,7 @@ type Props = {
 };
 
 type DraftEvent = {
+  code: string;
   deleted?: boolean;
   organizer: string;
   phase: ServerPhase;
@@ -557,13 +558,20 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setOrganizer("");
     setServerPhase("selection");
     setConfirmedOwners([]);
+    setShowCpuForm(false);
+    setShowCpuRenameForm(false);
   }, [leagueCode]);
 
   useEffect(() => {
+    let cancelled = false;
     const events = new EventSource(`${API_URL}/drafts/${leagueCode}/events`);
 
     events.onmessage = (event) => {
       const draft: DraftEvent = JSON.parse(event.data);
+
+       if (cancelled || draft.code !== leagueCode) {
+        return;
+      }
 
       if (draft.deleted) {
         window.alert("La liga fue eliminada por el organizador");
@@ -634,6 +642,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     };
 
     return () => {
+      cancelled = true;
       events.close();
     };
   }, [leagueCode, players, settings.money, currentUser]);
@@ -1909,7 +1918,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         </div>
       )}
 
-      {showCpuForm && (
+      {showCpuForm && settings.leagueType !== "Fantasia" && (
         <div className="player-modal" onClick={() => setShowCpuForm(false)}>
           <div className="player-modal-card" onClick={(event) => event.stopPropagation()}>
             <button className="modal-close" onClick={() => setShowCpuForm(false)}>Cerrar</button>
@@ -1947,7 +1956,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         </div>
       )}
 
-      {showCpuRenameForm && (
+      {showCpuRenameForm && settings.leagueType !== "Fantasia" && (
         <div className="player-modal" onClick={() => setShowCpuRenameForm(false)}>
           <div className="player-modal-card" onClick={(event) => event.stopPropagation()}>
             <button className="modal-close" onClick={() => setShowCpuRenameForm(false)}>Cerrar</button>
