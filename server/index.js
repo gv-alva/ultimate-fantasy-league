@@ -245,6 +245,14 @@ const hashString = (value) => {
 const getTeamPayroll = (team) =>
   team.squad.reduce((sum, player) => sum + (Number(player.salary) || 0), 0);
 
+const getTrainingCost = (overall) => {
+  if (overall <= 80) return 2;
+  if (overall <= 85) return 4;
+  if (overall <= 90) return 7;
+  if (overall <= 95) return 12;
+  return 20;
+};
+
 const getTeamPayload = (team) => ({
   ...team,
   salaryUsed: getTeamPayroll(team),
@@ -1443,6 +1451,43 @@ app.post("/drafts/:code/release", (req, res) => {
   draft.news.unshift(
     `Fabrizio Romano: ${team.name} libero a ${player.Name} y recupero ${player.releaseValue || 0}M`
   );
+  sendDraftUpdate(code);
+  res.json(getDraftPayload(code));
+});
+
+app.post("/drafts/:code/train", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username, playerId } = req.body;
+  const draft = ensureDraft(code);
+
+  if (!draft) {
+    return res.status(404).json({ error: "Draft no encontrado" });
+  }
+
+  const team = draft.teams[username];
+  const playerIndex = team?.squad.findIndex((item) => String(item.ID) === String(playerId)) ?? -1;
+
+  if (!team || playerIndex === -1) {
+    return res.status(404).json({ error: "Jugador no encontrado en tu club" });
+  }
+
+  const player = team.squad[playerIndex];
+  if (Number(player.OVR) >= 99) {
+    return res.status(400).json({ error: "Este jugador ya no puede subir mas" });
+  }
+
+  const cost = getTrainingCost(Number(player.OVR));
+  if (Number(team.budget) < cost) {
+    return res.status(400).json({ error: "No tienes presupuesto para este entrenamiento" });
+  }
+
+  team.budget -= cost;
+  team.squad[playerIndex] = {
+    ...player,
+    OVR: Number(player.OVR) + 1,
+    marketValue: Number(player.marketValue || 0) + cost,
+  };
+  draft.news.unshift(`Liga UFL: ${team.name} mejoro a ${player.Name} a ${team.squad[playerIndex].OVR} de media`);
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });

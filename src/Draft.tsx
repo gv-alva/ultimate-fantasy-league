@@ -233,6 +233,13 @@ const getPlayerGroup = (position = ""): PositionGroup => {
 const money = (value: number) => `${Math.round(value * 10) / 10}M`;
 const salary = (value: number) => `${Math.round(value)}k`;
 const salaryRange = (player: Player) => `${salary(player.salaryMin || player.salary)} a ${salary(player.salaryMax || player.salary)}`;
+const getTrainingCost = (overall: number) => {
+  if (overall <= 80) return 2;
+  if (overall <= 85) return 4;
+  if (overall <= 90) return 7;
+  if (overall <= 95) return 12;
+  return 20;
+};
 
 const getNewsAuthor = (item: string) =>
   item.startsWith("Fabrizio Romano") ? "Fabrizio Romano" : "Liga UFL";
@@ -535,6 +542,14 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setInitialPicks({});
     setAuctionOptions([]);
     setSelectedPlayer(null);
+    setNews([]);
+    setStandings([]);
+    setSchedule([]);
+    setInbox({});
+    setTeams({});
+    setOffers([]);
+    setPendingSignings([]);
+    setLeagueMatchCount(0);
   }, [leagueCode]);
 
   useEffect(() => {
@@ -1271,6 +1286,24 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     }
   };
 
+  const trainPlayer = async (player: Player) => {
+    const response = await fetch(`${API_URL}/drafts/${leagueCode}/train`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+        playerId: player.ID,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      alert(errorData?.error || "No se pudo entrenar al jugador");
+    }
+  };
+
   const renderPlayerCard = (player: Player, action?: ReactNode) => (
     <article className="mini-player-card" key={player.ID} onClick={() => setSelectedPlayer(player)}>
       {player.card && <img src={player.card} alt={player.Name} />}
@@ -1435,6 +1468,27 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
             </button>
           )
         )}
+      </div>
+      <div className="sponsor-card">
+        <h3>Entrenamiento</h3>
+        <div className="offers-panel">
+          {(currentTeam?.squad || []).map((player) => (
+            <article key={`training-${player.ID}`} className="offer-card">
+              <strong>{player.Name}</strong>
+              <span>Media actual: {player.OVR}</span>
+              <small>Costo de mejora +1: {money(getTrainingCost(Number(player.OVR)))}</small>
+              <div className="offer-actions">
+                <button
+                  className="small-action"
+                  disabled={Number(player.OVR) >= 99}
+                  onClick={() => trainPlayer(player)}
+                >
+                  {Number(player.OVR) >= 99 ? "TOPE 99" : "ENTRENAR +1"}
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
       </div>
     </section>
   );
