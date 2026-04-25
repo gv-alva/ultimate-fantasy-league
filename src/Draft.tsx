@@ -234,6 +234,7 @@ const money = (value: number) => `${Math.round(value * 10) / 10}M`;
 const salary = (value: number) => `${Math.round(value)}k`;
 const salaryRange = (player: Player) => `${salary(player.salaryMin || player.salary)} a ${salary(player.salaryMax || player.salary)}`;
 const getTrainingCost = (overall: number) => {
+  if (overall < 75) return 1;
   if (overall <= 80) return 2;
   if (overall <= 85) return 4;
   if (overall <= 90) return 7;
@@ -488,6 +489,7 @@ const decorateTeams = (
 
 export default function Draft({ leagueCode, players, currentUser, settings, onLogout }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("Inicio");
+  const [clubView, setClubView] = useState<"plantilla" | "training">("plantilla");
   const [phase, setPhase] = useState<DraftPhase>("initial");
   const [serverPhase, setServerPhase] = useState<ServerPhase>("selection");
   const [organizer, setOrganizer] = useState("");
@@ -1304,6 +1306,14 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     }
   };
 
+  const getTrainingLabel = (player: Player) => {
+    if (Number(player.OVR) < 75) {
+      return `Entrena hasta 75 por ${money(getTrainingCost(Number(player.OVR)))}`;
+    }
+
+    return `Sube +1 por ${money(getTrainingCost(Number(player.OVR)))}`;
+  };
+
   const renderPlayerCard = (player: Player, action?: ReactNode) => (
     <article className="mini-player-card" key={player.ID} onClick={() => setSelectedPlayer(player)}>
       {player.card && <img src={player.card} alt={player.Name} />}
@@ -1453,43 +1463,54 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         {currentTeam?.squad.length || 0}/{TEAM_SIZE_TARGET}
       </p>
       {renderSponsor()}
-      <div className="card-grid">
-        {(currentTeam?.squad || []).map((player) =>
-          renderPlayerCard(
-            player,
-            <button
-              className="small-action danger"
-              onClick={(event) => {
-                event.stopPropagation();
-                releasePlayer(player);
-              }}
-            >
-              Despedir
-            </button>
-          )
-        )}
+      <div className="offer-switch club-mode-switch">
+        <button className={clubView === "plantilla" ? "active" : ""} onClick={() => setClubView("plantilla")}>
+          Plantilla
+        </button>
+        <button className={clubView === "training" ? "active" : ""} onClick={() => setClubView("training")}>
+          Entrenamiento
+        </button>
       </div>
-      <div className="sponsor-card">
-        <h3>Entrenamiento</h3>
-        <div className="offers-panel">
-          {(currentTeam?.squad || []).map((player) => (
-            <article key={`training-${player.ID}`} className="offer-card">
-              <strong>{player.Name}</strong>
-              <span>Media actual: {player.OVR}</span>
-              <small>Costo de mejora +1: {money(getTrainingCost(Number(player.OVR)))}</small>
-              <div className="offer-actions">
-                <button
-                  className="small-action"
-                  disabled={Number(player.OVR) >= 99}
-                  onClick={() => trainPlayer(player)}
-                >
-                  {Number(player.OVR) >= 99 ? "TOPE 99" : "ENTRENAR +1"}
-                </button>
-              </div>
-            </article>
-          ))}
+      {clubView === "plantilla" ? (
+        <div className="card-grid">
+          {(currentTeam?.squad || []).map((player) =>
+            renderPlayerCard(
+              player,
+              <button
+                className="small-action danger"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  releasePlayer(player);
+                }}
+              >
+                Despedir
+              </button>
+            )
+          )}
         </div>
-      </div>
+      ) : (
+        <div className="sponsor-card">
+          <h3>Entrenamiento del club</h3>
+          <div className="offers-panel">
+            {(currentTeam?.squad || []).map((player) => (
+              <article key={`training-${player.ID}`} className="offer-card">
+                <strong>{player.Name}</strong>
+                <span>Media actual: {player.OVR}</span>
+                <small>{getTrainingLabel(player)}</small>
+                <div className="offer-actions">
+                  <button
+                    className="small-action"
+                    disabled={Number(player.OVR) >= 99}
+                    onClick={() => trainPlayer(player)}
+                  >
+                    {Number(player.OVR) >= 99 ? "TOPE 99" : "MEJORAR JUGADOR"}
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   );
 

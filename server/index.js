@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.605";
+const SERVER_VERSION = "v0.606";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -246,6 +246,7 @@ const getTeamPayroll = (team) =>
   team.squad.reduce((sum, player) => sum + (Number(player.salary) || 0), 0);
 
 const getTrainingCost = (overall) => {
+  if (overall < 75) return 1;
   if (overall <= 80) return 2;
   if (overall <= 85) return 4;
   if (overall <= 90) return 7;
@@ -1481,13 +1482,26 @@ app.post("/drafts/:code/train", (req, res) => {
     return res.status(400).json({ error: "No tienes presupuesto para este entrenamiento" });
   }
 
+  const nextOverall = Number(player.OVR) < 75 ? 75 : Number(player.OVR) + 1;
+
   team.budget -= cost;
   team.squad[playerIndex] = {
     ...player,
-    OVR: Number(player.OVR) + 1,
+    OVR: nextOverall,
     marketValue: Number(player.marketValue || 0) + cost,
   };
-  draft.news.unshift(`Liga UFL: ${team.name} mejoro a ${player.Name} a ${team.squad[playerIndex].OVR} de media`);
+  if (draft.organizer && draft.organizer !== username) {
+    if (!draft.inbox[draft.organizer]) {
+      draft.inbox[draft.organizer] = [];
+    }
+    draft.inbox[draft.organizer].unshift({
+      id: `training-${code}-${player.ID}-${Date.now()}`,
+      title: `${team.name} completo un entrenamiento`,
+      body: `${player.Name} subio a ${nextOverall} de media en ${team.name}.`,
+      playerId: player.ID,
+    });
+  }
+  draft.news.unshift(`Liga UFL: ${team.name} mejoro a ${player.Name} a ${nextOverall} de media`);
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });

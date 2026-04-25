@@ -4,7 +4,7 @@ import Draft from "./Draft";
 import Lobby from "./Lobby";
 import logo from "./assets/logo.png";
 
-const APP_VERSION = "0.605";
+const APP_VERSION = "0.606";
 
 type LobbyData = {
   code: string;
@@ -482,6 +482,7 @@ export default function App() {
   if (screen === "draft") {
     return (
       <Draft
+        key={leagueCode}
         leagueCode={leagueCode}
         players={players}
         currentUser={currentUser}
