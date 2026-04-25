@@ -153,6 +153,7 @@ type DraftEvent = {
   standings: Standing[];
   schedule: ScheduleMatch[][];
   cpuTeams: CpuTeam[];
+  visibleRoundStart: number;
 };
 
 const tabs: Tab[] = ["Inicio", "Club", "Tabla de liga", "Transferencia"];
@@ -528,6 +529,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [schedule, setSchedule] = useState<ScheduleMatch[][]>([]);
   const [cpuTeams, setCpuTeams] = useState<CpuTeam[]>([]);
   const [tableView, setTableView] = useState<"tabla" | "partidos">("tabla");
+  const [visibleRoundStart, setVisibleRoundStart] = useState(1);
 
   useEffect(() => {
     setInitialPicks({});
@@ -582,6 +584,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       setStandings(draft.standings || []);
       setSchedule(draft.schedule || []);
       setCpuTeams(draft.cpuTeams || []);
+      setVisibleRoundStart(draft.visibleRoundStart || 1);
 
       if (draft.phase === "dashboard") {
         setPhase("initial");
@@ -792,10 +795,9 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     ? [...currentTeamPlayers, ...opponentPlayers]
     : currentTeamPlayers;
   const standingsNameByKey = new Map(standings.map((team) => [team.key, team.name]));
-  const matchesPerRound = standings.length > 0 ? Math.max(1, standings.length / 2) : 1;
-  const currentRound = settings.leagueType === "Fantasia"
-    ? Math.min(schedule.length || 1, Math.floor(leagueMatchCount / matchesPerRound) + 1)
-    : 1;
+  const visibleRounds = settings.leagueType === "Fantasia"
+    ? schedule.slice(visibleRoundStart - 1, visibleRoundStart + 4)
+    : [];
 
   const getPlayerStatusLabel = (player: Player) => {
     const owner = playerOwners.get(player.ID);
@@ -1455,7 +1457,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         <button className="btn btn-login compact-btn" onClick={() => setShowResultForm(true)}>
           AGREGAR RESULTADO
         </button>
-        {isOrganizer && settings.fillCpuTeams && (
+        {isOrganizer && settings.fillCpuTeams && settings.leagueType !== "Fantasia" && (
           <>
             <button className="btn btn-outline compact-btn" onClick={() => setShowCpuForm(true)}>
               RESULTADO CPU
@@ -1472,7 +1474,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
             <div key={team.key} className="league-row rich">
               <span>{index + 1}</span>
               <strong>{team.name}</strong>
-              <small>{team.real ? "Real" : "CPU"}</small>
+              <small>{team.real ? "Real" : "Generado"}</small>
               <em>{team.champions ? "Champions" : "Liga"}</em>
               <b>{team.pts} pts</b>
             </div>
@@ -1481,14 +1483,16 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       ) : settings.leagueType === "Fantasia" ? (
         <div className="draft-list">
           <div className="draft-list-item">
-            <strong>Jornada actual: {currentRound}/{schedule.length || 1}</strong>
+            <strong>
+              Jornadas {visibleRoundStart}-{Math.min(visibleRoundStart + 4, schedule.length || 1)}
+            </strong>
           </div>
-          {schedule.map((roundMatches, index) => (
+          {visibleRounds.map((roundMatches, index) => (
             <div
-              key={`round-${index + 1}`}
-              className={`draft-list-item ${currentRound === index + 1 ? "current-round" : ""}`}
+              key={`round-${visibleRoundStart + index}`}
+              className="draft-list-item current-round"
             >
-              <strong>Jornada {index + 1}</strong>
+              <strong>Jornada {visibleRoundStart + index}</strong>
               <div className="schedule-round">
                 {roundMatches.map((match) => (
                   <div key={match.id} className="schedule-match">

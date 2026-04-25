@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.601";
+const SERVER_VERSION = "v0.603";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -425,6 +425,7 @@ const syncFantasySchedule = (draft, lobby) => {
 
   if (!draft.schedule || draft.schedule.length === 0) {
     draft.schedule = buildFantasySchedule(teamKeys);
+    draft.visibleRoundStart = 1;
     return;
   }
 
@@ -437,6 +438,9 @@ const syncFantasySchedule = (draft, lobby) => {
   draft.schedule = freshSchedule.map((roundMatches) =>
     roundMatches.map((match) => existingMatches.get(`${match.round}:${match.homeKey}:${match.awayKey}`) || match)
   );
+  if (!draft.visibleRoundStart) {
+    draft.visibleRoundStart = 1;
+  }
 };
 
 const getTeamNameByKey = (draft, key) => {
@@ -465,6 +469,89 @@ const markScheduleMatchPlayed = (draft, homeKey, awayKey, result) => {
               awayGoals: result.homeGoals,
             };
       return;
+    }
+  }
+};
+
+const simulateCpuMatchResult = (homeName, awayName) => {
+  const homeSeed = hashString(`${homeName}:${awayName}:home`);
+  const awaySeed = hashString(`${awayName}:${homeName}:away`);
+  let homeGoals = homeSeed % 4;
+  let awayGoals = awaySeed % 4;
+
+  if (homeGoals === 0 && awayGoals === 0) {
+    if (homeSeed % 2 === 0) homeGoals = 1;
+    else awayGoals = 1;
+  }
+
+  return { homeGoals, awayGoals };
+};
+
+const applyStandingResult = (draft, teamAName, teamBName, scoreA, scoreB) => {
+  draft.standings = sortStandings(
+    draft.standings.map((team) => {
+      if (team.name !== teamAName && team.name !== teamBName) return team;
+
+      const isTeamA = team.name === teamAName;
+      const goalsForValue = isTeamA ? scoreA : scoreB;
+      const goalsAgainstValue = isTeamA ? scoreB : scoreA;
+      const win = goalsForValue > goalsAgainstValue ? 1 : 0;
+      const draw = goalsForValue === goalsAgainstValue ? 1 : 0;
+      const loss = goalsForValue < goalsAgainstValue ? 1 : 0;
+
+      return {
+        ...team,
+        played: team.played + 1,
+        wins: team.wins + win,
+        draws: team.draws + draw,
+        losses: team.losses + loss,
+        gf: team.gf + goalsForValue,
+        ga: team.ga + goalsAgainstValue,
+        pts: team.pts + (win ? 3 : draw ? 1 : 0),
+      };
+    })
+  );
+};
+
+const getVisibleRoundStart = (draft) => draft.visibleRoundStart || 1;
+
+const maybeAdvanceFantasyRoundBlock = (draft, lobby) => {
+  if (lobby.leagueType !== "Fantasia" || !draft.schedule?.length) return;
+
+  const visibleRoundStart = getVisibleRoundStart(draft);
+  const visibleRounds = draft.schedule.slice(visibleRoundStart - 1, visibleRoundStart + 4);
+  const managerKeys = new Set(lobby.players);
+
+  visibleRounds.forEach((roundMatches) => {
+    roundMatches.forEach((match) => {
+      const involvesManager =
+        managerKeys.has(match.homeKey) || managerKeys.has(match.awayKey);
+
+      if (!involvesManager && !match.played) {
+        const homeName = getTeamNameByKey(draft, match.homeKey);
+        const awayName = getTeamNameByKey(draft, match.awayKey);
+        const simulated = simulateCpuMatchResult(homeName, awayName);
+        applyStandingResult(draft, homeName, awayName, simulated.homeGoals, simulated.awayGoals);
+        match.played = true;
+        match.result = simulated;
+        draft.leagueMatchCount = Number(draft.leagueMatchCount || 0) + 1;
+        syncUnavailablePlayers(draft);
+        maybeTriggerRandomEvent("fantasy-block", draft);
+        draft.news.unshift(
+          `Liga UFL: ${homeName} ${simulated.homeGoals}-${simulated.awayGoals} ${awayName}`
+        );
+      }
+    });
+  });
+
+  const blockCompleted = visibleRounds.every((roundMatches) =>
+    roundMatches.every((match) => match.played)
+  );
+
+  if (blockCompleted) {
+    const nextStart = visibleRoundStart + 5;
+    if (nextStart <= draft.schedule.length) {
+      draft.visibleRoundStart = nextStart;
     }
   }
 };
@@ -675,6 +762,7 @@ const getDraftPayload = (code) => {
     standings: draft.standings || [],
     schedule: draft.schedule || [],
     cpuTeams: draft.cpuTeams || [],
+    visibleRoundStart: getVisibleRoundStart(draft),
   };
 };
 
@@ -743,6 +831,7 @@ const ensureDraft = (code) => {
       }, {}),
       standings: [],
       schedule: [],
+      visibleRoundStart: 1,
       seasonWinnerAnnounced: false,
       news: ["Seleccion principal iniciada"],
     });
@@ -1597,6 +1686,8 @@ app.post("/drafts/:code/results", (req, res) => {
       awayGoals: scoreB,
     });
   }
+
+  maybeAdvanceFantasyRoundBlock(draft, lobby);
 
   const totalMatches =
     lobby.leagueType === "Fantasia"
