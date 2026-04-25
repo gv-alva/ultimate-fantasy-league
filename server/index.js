@@ -739,10 +739,14 @@ const sendLobbyUpdate = (code) => {
 
 const getDraftPayload = (code) => {
   const draft = drafts.get(code);
+  const lobby = lobbies.get(code);
 
   if (!draft) return null;
 
-  syncStandingsWithTeams(draft, lobbies.get(code));
+  syncStandingsWithTeams(draft, lobby);
+  if (lobby?.leagueType === "Fantasia") {
+    maybeAdvanceFantasyRoundBlock(draft, lobby);
+  }
 
   return {
     code,

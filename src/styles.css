@@ -782,6 +782,7 @@ body {
 
 .table-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 16px;
 }
@@ -789,6 +790,7 @@ body {
 .compact-btn {
   min-height: 44px;
   width: auto;
+  max-width: 100%;
   padding: 12px 16px;
 }
 
@@ -819,6 +821,7 @@ body {
 
 .offer-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 10px;
 }
@@ -934,6 +937,7 @@ body {
   .draft-toolbar {
     width: 100%;
     justify-content: space-between;
+    flex-wrap: wrap;
   }
 
   .draft-tabs {
@@ -948,6 +952,13 @@ body {
     font-size: 11px;
     min-height: 42px;
     padding: 4px;
+  }
+
+  .draft-logout,
+  .inbox-btn,
+  .compact-btn,
+  .small-action {
+    width: 100%;
   }
 
   .transfer-layout {
@@ -974,6 +985,17 @@ body {
   .form-grid {
     grid-template-columns: 1fr;
     flex-direction: column;
+  }
+
+  .player-modal {
+    padding: 10px;
+    align-items: flex-start;
+  }
+
+  .player-modal-card {
+    width: 100%;
+    max-height: calc(100vh - 20px);
+    padding: 16px;
   }
 
   .scorer-row {

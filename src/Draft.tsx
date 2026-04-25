@@ -1460,10 +1460,10 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         {isOrganizer && settings.fillCpuTeams && settings.leagueType !== "Fantasia" && (
           <>
             <button className="btn btn-outline compact-btn" onClick={() => setShowCpuForm(true)}>
-              RESULTADO CPU
+              RESULTADO AUTOMATICO
             </button>
             <button className="btn btn-outline compact-btn" onClick={() => setShowCpuRenameForm(true)}>
-              RENOMBRAR CPU
+              RENOMBRAR CLUBES
             </button>
           </>
         )}
@@ -1474,7 +1474,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
             <div key={team.key} className="league-row rich">
               <span>{index + 1}</span>
               <strong>{team.name}</strong>
-              <small>{team.real ? "Real" : "Generado"}</small>
+              <small>{team.played} PJ</small>
               <em>{team.champions ? "Champions" : "Liga"}</em>
               <b>{team.pts} pts</b>
             </div>
@@ -1828,10 +1828,10 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         <div className="player-modal" onClick={() => setShowCpuForm(false)}>
           <div className="player-modal-card" onClick={(event) => event.stopPropagation()}>
             <button className="modal-close" onClick={() => setShowCpuForm(false)}>Cerrar</button>
-            <h2>Resultado CPU</h2>
+            <h2>Resultado automatico</h2>
             <div className="form-grid">
               <label className="field">
-                <span>Equipo CPU A</span>
+                <span>Equipo A</span>
                 <select className="input" value={cpuTeamA} onChange={(e) => setCpuTeamA(e.target.value)}>
                   <option value="">Selecciona</option>
                   {standings.filter((team) => !players.includes(team.name)).map((team) => (
@@ -1840,7 +1840,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                 </select>
               </label>
               <label className="field">
-                <span>Equipo CPU B</span>
+                <span>Equipo B</span>
                 <select className="input" value={cpuTeamB} onChange={(e) => setCpuTeamB(e.target.value)}>
                   <option value="">Selecciona</option>
                   {standings.filter((team) => !players.includes(team.name)).map((team) => (
@@ -1849,15 +1849,15 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                 </select>
               </label>
               <label className="field">
-                <span>Puntos CPU A</span>
+                <span>Puntos A</span>
                 <input className="input" value={cpuPointsA} onChange={(e) => setCpuPointsA(e.target.value)} />
               </label>
               <label className="field">
-                <span>Puntos CPU B</span>
+                <span>Puntos B</span>
                 <input className="input" value={cpuPointsB} onChange={(e) => setCpuPointsB(e.target.value)} />
               </label>
             </div>
-            <button className="btn btn-login" onClick={submitCpuResult}>GUARDAR CPU</button>
+            <button className="btn btn-login" onClick={submitCpuResult}>GUARDAR</button>
           </div>
         </div>
       )}
@@ -1866,9 +1866,9 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         <div className="player-modal" onClick={() => setShowCpuRenameForm(false)}>
           <div className="player-modal-card" onClick={(event) => event.stopPropagation()}>
             <button className="modal-close" onClick={() => setShowCpuRenameForm(false)}>Cerrar</button>
-            <h2>Renombrar equipos CPU</h2>
+            <h2>Renombrar clubes generados</h2>
             <div className="offers-panel">
-              {cpuTeams.length === 0 && <div className="draft-empty-state">No hay equipos CPU en esta liga.</div>}
+              {cpuTeams.length === 0 && <div className="draft-empty-state">No hay clubes generados en esta liga.</div>}
               {cpuTeams.map((team) => (
                 <article key={team.key} className="offer-card">
                   <strong>{team.name}</strong>
