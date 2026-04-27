@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.609";
+const SERVER_VERSION = "v0.610";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -290,6 +290,19 @@ const sortStandings = (standings = []) =>
       rightTeam.gf - leftTeam.gf
   );
 
+const addNews = (draft, code, text) => {
+  if (!draft.news) {
+    draft.news = [];
+  }
+  draft.news.unshift({ code, text, createdAt: Date.now() });
+};
+
+const getNewsPayload = (draft, code) =>
+  (draft.news || [])
+    .filter((item) => item && typeof item === "object" && item.code === code)
+    .map((item) => item.text)
+    .slice(0, 80);
+
 const syncStandingsWithTeams = (draft, lobby) => {
   if (!draft || !lobby) return;
   ensureCpuTeams(draft, lobby);
@@ -338,14 +351,14 @@ const syncStandingsWithTeams = (draft, lobby) => {
   );
 };
 
-const appendSeasonWinnerIfNeeded = (draft) => {
+const appendSeasonWinnerIfNeeded = (draft, code) => {
   if (!draft?.standings?.length || draft.seasonWinnerAnnounced) return;
 
   const winner = sortStandings(draft.standings)[0];
   if (!winner) return;
 
   draft.seasonWinnerAnnounced = true;
-  draft.news.unshift(`Liga UFL: ${winner.name} es campeon de la temporada`);
+  addNews(draft, code, `Liga UFL: ${winner.name} es campeon de la temporada`);
 };
 
 const buildFantasySchedule = (teamKeys = []) => {
@@ -548,9 +561,51 @@ const applyStandingResultByKeys = (draft, teamAKey, teamBKey, scoreA, scoreB) =>
   );
 };
 
+const resetStandingStats = (team) => ({
+  ...team,
+  played: 0,
+  wins: 0,
+  draws: 0,
+  losses: 0,
+  gf: 0,
+  ga: 0,
+  pts: 0,
+});
+
+const rebuildFantasyStandingsFromSchedule = (draft, lobby) => {
+  if (lobby?.leagueType !== "Fantasia" || !draft.schedule?.length || !draft.standings?.length) {
+    return;
+  }
+
+  draft.standings = draft.standings.map(resetStandingStats);
+
+  draft.schedule.flat().forEach((match) => {
+    if (!match.played) return;
+
+    if (!match.result) {
+      const simulated = simulateCpuMatchResult(
+        getTeamNameByKey(draft, match.homeKey),
+        getTeamNameByKey(draft, match.awayKey)
+      );
+      match.result = simulated;
+    }
+
+    applyStandingResultByKeys(
+      draft,
+      match.homeKey,
+      match.awayKey,
+      Number(match.result.homeGoals) || 0,
+      Number(match.result.awayGoals) || 0
+    );
+  });
+
+  const playedMatches = draft.schedule.flat().filter((match) => match.played && match.result).length;
+  draft.leagueMatchCount = playedMatches;
+};
+
 const getVisibleRoundStart = (draft) => draft.visibleRoundStart || 1;
 
-const maybeAdvanceFantasyRoundBlock = (draft, lobby) => {
+const maybeAdvanceFantasyRoundBlock = (draft, lobby, code) => {
   if (lobby.leagueType !== "Fantasia" || !draft.schedule?.length) return 0;
 
   const visibleRoundStart = getVisibleRoundStart(draft);
@@ -579,10 +634,8 @@ const maybeAdvanceFantasyRoundBlock = (draft, lobby) => {
         draft.leagueMatchCount = Number(draft.leagueMatchCount || 0) + 1;
         simulatedMatches += 1;
         syncUnavailablePlayers(draft);
-        maybeTriggerRandomEvent("fantasy-block", draft);
-        draft.news.unshift(
-          `Liga UFL: ${homeName} ${simulated.homeGoals}-${simulated.awayGoals} ${awayName}`
-        );
+        maybeTriggerRandomEvent(code, draft);
+        addNews(draft, code, `Liga UFL: ${homeName} ${simulated.homeGoals}-${simulated.awayGoals} ${awayName}`);
       }
     });
   });
@@ -661,9 +714,7 @@ const maybeTriggerRandomEvent = (code, draft) => {
   };
 
   draft.inbox[owner].unshift(inboxItem);
-  draft.news.unshift(
-    `Fabrizio Romano: ${player.Name} ${reason} y sera baja de ${team.name} por 2 partidos`
-  );
+  addNews(draft, code, `Fabrizio Romano: ${player.Name} ${reason} y sera baja de ${team.name} por 2 partidos`);
 
   return inboxItem;
 };
@@ -709,7 +760,7 @@ const getAvailablePlayers = (draft) => {
     );
 };
 
-const autoCompleteSquad = (draft, owner) => {
+const autoCompleteSquad = (draft, owner, code) => {
   const team = draft.teams[owner];
   let guard = 0;
 
@@ -722,9 +773,7 @@ const autoCompleteSquad = (draft, owner) => {
     if (cheapestPlayer) {
       team.budget -= cheapestPlayer.marketValue;
       team.squad.push(clonePlayerForTeam(cheapestPlayer, cheapestPlayer.salary));
-      draft.news.unshift(
-        `Fabrizio Romano: ${team.name} completo plantilla con ${cheapestPlayer.Name} por ${cheapestPlayer.marketValue}M`
-      );
+      addNews(draft, code, `Fabrizio Romano: ${team.name} completo plantilla con ${cheapestPlayer.Name} por ${cheapestPlayer.marketValue}M`);
       continue;
     }
 
@@ -740,9 +789,7 @@ const autoCompleteSquad = (draft, owner) => {
 
     team.squad = team.squad.filter((player) => String(player.ID) !== String(releasablePlayer.ID));
     team.budget += Number(releasablePlayer.releaseValue) || 0;
-    draft.news.unshift(
-      `Liga UFL: ${team.name} libero a ${releasablePlayer.Name} para ajustar la plantilla`
-    );
+    addNews(draft, code, `Liga UFL: ${team.name} libero a ${releasablePlayer.Name} para ajustar la plantilla`);
   }
 };
 
@@ -789,8 +836,10 @@ const getDraftPayload = (code) => {
   if (!draft) return null;
 
   syncStandingsWithTeams(draft, lobby);
+  syncFantasySchedule(draft, lobby);
+  rebuildFantasyStandingsFromSchedule(draft, lobby);
   if (lobby?.leagueType === "Fantasia") {
-    const simulatedMatches = maybeAdvanceFantasyRoundBlock(draft, lobby);
+    const simulatedMatches = maybeAdvanceFantasyRoundBlock(draft, lobby, code);
     if (simulatedMatches > 0) {
       draft.needsBroadcast = true;
     }
@@ -808,7 +857,7 @@ const getDraftPayload = (code) => {
     ),
     offers: draft.offers,
     pendingSignings: (draft.pendingSignings || []).map(getPendingSigningPayload),
-    news: draft.news,
+    news: getNewsPayload(draft, code),
     leagueMatchCount: draft.leagueMatchCount || 0,
     inbox: draft.inbox || {},
     standings: draft.standings || [],
@@ -885,7 +934,7 @@ const ensureDraft = (code) => {
       schedule: [],
       visibleRoundStart: 1,
       seasonWinnerAnnounced: false,
-      news: ["Seleccion principal iniciada"],
+      news: [{ code, text: "Seleccion principal iniciada", createdAt: Date.now() }],
     });
   }
 
@@ -1153,7 +1202,7 @@ app.post("/drafts/:code/confirm", (req, res) => {
 
   if (!draft.confirmedOwners.includes(username)) {
     draft.confirmedOwners.push(username);
-    draft.news.unshift(`${username} confirmo su seleccion inicial`);
+    addNews(draft, code, `${username} confirmo su seleccion inicial`);
   }
 
   const players = squad
@@ -1170,7 +1219,7 @@ app.post("/drafts/:code/confirm", (req, res) => {
 
   if (draft.confirmedOwners.length === lobby.players.length) {
     draft.phase = "dashboard";
-    draft.news.unshift("Todos confirmaron su seleccion. El organizador puede iniciar la subasta.");
+    addNews(draft, code, "Todos confirmaron su seleccion. El organizador puede iniciar la subasta.");
   }
 
   sendDraftUpdate(code);
@@ -1199,7 +1248,7 @@ app.post("/drafts/:code/start-auction", (req, res) => {
   draft.auctionStage = 0;
   draft.bids = [];
   draft.bidCounts = {};
-  draft.news.unshift("El organizador inicio la subasta");
+  addNews(draft, code, "El organizador inicio la subasta");
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });
@@ -1263,7 +1312,7 @@ app.post("/drafts/:code/next-stage", (req, res) => {
   }
 
   winners.forEach((winner) => {
-    draft.news.unshift(`Fabrizio Romano: ${winner.owner} gano a ${winner.playerName} por ${winner.amount}M`);
+    addNews(draft, code, `Fabrizio Romano: ${winner.owner} gano a ${winner.playerName} por ${winner.amount}M`);
     const player = getPlayerById(winner.playerId);
     const team = draft.teams[winner.owner];
     if (
@@ -1279,9 +1328,9 @@ app.post("/drafts/:code/next-stage", (req, res) => {
         player,
         amount: Number(winner.amount) || 0,
       });
-      draft.news.unshift(`Liga UFL: ${team.name} debe negociar el sueldo de ${winner.playerName} para cerrar el fichaje`);
+      addNews(draft, code, `Liga UFL: ${team.name} debe negociar el sueldo de ${winner.playerName} para cerrar el fichaje`);
     } else if (team) {
-      draft.news.unshift(`Liga UFL: ${team.name} no pudo cerrar a ${winner.playerName} por limite de plantilla`);
+      addNews(draft, code, `Liga UFL: ${team.name} no pudo cerrar a ${winner.playerName} por limite de plantilla`);
     }
   });
 
@@ -1291,10 +1340,10 @@ app.post("/drafts/:code/next-stage", (req, res) => {
   if (draft.auctionStage >= 5) {
     draft.transferWindowId += 1;
     draft.phase = "market";
-    draft.news.unshift("Liga UFL: Subastas finalizadas. Mercado de transferencias abierto.");
+    addNews(draft, code, "Liga UFL: Subastas finalizadas. Mercado de transferencias abierto.");
   } else {
     draft.auctionStage += 1;
-    draft.news.unshift(`Liga UFL: inicia la etapa ${draft.auctionStage + 1}/6 de subasta.`);
+    addNews(draft, code, `Liga UFL: inicia la etapa ${draft.auctionStage + 1}/6 de subasta.`);
   }
 
   sendDraftUpdate(code);
@@ -1374,7 +1423,9 @@ app.post("/drafts/:code/negotiate", (req, res) => {
         }
 
         draft.pendingSignings = draft.pendingSignings.filter((signing) => signing.id !== pendingSigning.id);
-        draft.news.unshift(
+        addNews(
+          draft,
+          code,
           `Fabrizio Romano: ${player.Name} rechazo a ${pendingSigning.buyerClub || pendingSigning.owner}. La operacion se cayo, regresaron ${refund}M al comprador y ${sellerPenalty}M quedaron para ${pendingSigning.fromClub || pendingSigning.fromOwner}`
         );
         sendDraftUpdate(code);
@@ -1420,9 +1471,7 @@ app.post("/drafts/:code/negotiate", (req, res) => {
       seller.budget += Number(pendingSigning.heldAmount || transferAmount) || 0;
       buyer.squad.push(clonePlayerForTeam(player, offeredSalary));
       draft.pendingSignings = draft.pendingSignings.filter((signing) => signing.id !== pendingSigning.id);
-      draft.news.unshift(
-        `Fabrizio Romano: ${player.Name} cambia de ${seller.name} a ${buyer.name} con sueldo de ${offeredSalary}k por temporada`
-      );
+      addNews(draft, code, `Fabrizio Romano: ${player.Name} cambia de ${seller.name} a ${buyer.name} con sueldo de ${offeredSalary}k por temporada`);
       sendDraftUpdate(code);
       return res.json({ mode: "offer", ...getDraftPayload(code) });
     }
@@ -1434,9 +1483,7 @@ app.post("/drafts/:code/negotiate", (req, res) => {
     team.budget -= transferAmount;
     team.squad.push(clonePlayerForTeam(player, offeredSalary));
     draft.pendingSignings = draft.pendingSignings.filter((signing) => signing.id !== pendingSigning.id);
-    draft.news.unshift(
-      `Fabrizio Romano: ${team.name} cerro a ${player.Name} tras ganar la subasta, sueldo ${offeredSalary}k por temporada`
-    );
+    addNews(draft, code, `Fabrizio Romano: ${team.name} cerro a ${player.Name} tras ganar la subasta, sueldo ${offeredSalary}k por temporada`);
     sendDraftUpdate(code);
     return res.json({ mode: "auction", ...getDraftPayload(code) });
   }
@@ -1448,9 +1495,7 @@ app.post("/drafts/:code/negotiate", (req, res) => {
 
     team.budget -= player.marketValue;
     team.squad.push(clonePlayerForTeam(player, offeredSalary));
-    draft.news.unshift(
-      `Fabrizio Romano: ${team.name} cerro a ${player.Name} por ${player.marketValue}M con sueldo de ${offeredSalary}k`
-    );
+    addNews(draft, code, `Fabrizio Romano: ${team.name} cerro a ${player.Name} por ${player.marketValue}M con sueldo de ${offeredSalary}k`);
     sendDraftUpdate(code);
     return res.json({ mode: "buy", ...getDraftPayload(code) });
   }
@@ -1477,7 +1522,7 @@ app.post("/drafts/:code/buy", (req, res) => {
 
   team.budget -= player.marketValue;
   team.squad.push(clonePlayerForTeam(player, player.salary));
-  draft.news.unshift(`Fabrizio Romano: ${team.name} compro a ${player.Name} por ${player.marketValue}M`);
+  addNews(draft, code, `Fabrizio Romano: ${team.name} compro a ${player.Name} por ${player.marketValue}M`);
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });
@@ -1500,9 +1545,7 @@ app.post("/drafts/:code/release", (req, res) => {
 
   team.squad = team.squad.filter((item) => String(item.ID) !== String(playerId));
   team.budget += Number(player.releaseValue) || 0;
-  draft.news.unshift(
-    `Fabrizio Romano: ${team.name} libero a ${player.Name} y recupero ${player.releaseValue || 0}M`
-  );
+  addNews(draft, code, `Fabrizio Romano: ${team.name} libero a ${player.Name} y recupero ${player.releaseValue || 0}M`);
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });
@@ -1552,7 +1595,7 @@ app.post("/drafts/:code/train", (req, res) => {
       playerId: player.ID,
     });
   }
-  draft.news.unshift(`Liga UFL: ${team.name} mejoro a ${player.Name} a ${nextOverall} de media`);
+  addNews(draft, code, `Liga UFL: ${team.name} mejoro a ${player.Name} a ${nextOverall} de media`);
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });
@@ -1617,7 +1660,7 @@ app.post("/drafts/:code/offers", (req, res) => {
     salary: Number(player.salary) || 0,
     status: "pending",
   });
-  draft.news.unshift(`Fabrizio Romano: ${from} envio oferta por ${player.Name}`);
+  addNews(draft, code, `Fabrizio Romano: ${from} envio oferta por ${player.Name}`);
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });
@@ -1660,9 +1703,7 @@ app.post("/drafts/:code/offers/:offerId", (req, res) => {
       return res.status(400).json({ error: "No se pudo completar la oferta" });
     }
 
-    draft.news.unshift(
-      `Fabrizio Romano: ${seller.name} acepto la oferta de ${buyer.name} por ${offer.player.Name}. Falta negociar el sueldo del jugador.`
-    );
+    addNews(draft, code, `Fabrizio Romano: ${seller.name} acepto la oferta de ${buyer.name} por ${offer.player.Name}. Falta negociar el sueldo del jugador.`);
     buyer.budget -= offer.amount;
     draft.pendingSignings.unshift({
       id: `offer-${offer.player.ID}-${Date.now()}-${offer.from}`,
@@ -1705,12 +1746,12 @@ app.post("/drafts/:code/start-season", (req, res) => {
   }
 
   Object.keys(draft.teams).forEach((owner) => {
-    autoCompleteSquad(draft, owner);
+    autoCompleteSquad(draft, owner, code);
   });
 
   draft.phase = "season";
   draft.seasonWinnerAnnounced = false;
-  draft.news.unshift("Liga UFL: el periodo de transferencias termino y la liga comenzo.");
+  addNews(draft, code, "Liga UFL: el periodo de transferencias termino y la liga comenzo.");
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });
@@ -1778,18 +1819,18 @@ app.post("/drafts/:code/results", (req, res) => {
   draft.leagueMatchCount = Number(draft.leagueMatchCount || 0) + 1;
   syncUnavailablePlayers(draft);
   maybeTriggerRandomEvent(code, draft);
-  draft.news.unshift(`Liga UFL: ${myTeamName} ${scoreA}-${scoreB} ${opponentName}`);
+  addNews(draft, code, `Liga UFL: ${myTeamName} ${scoreA}-${scoreB} ${opponentName}`);
 
   teamScorers.forEach((row) => {
-    draft.news.unshift(`Liga UFL: ${row.name} anoto ${row.goals} gol(es) para ${myTeamName}`);
+    addNews(draft, code, `Liga UFL: ${row.name} anoto ${row.goals} gol(es) para ${myTeamName}`);
   });
   opponentScorers.forEach((row) => {
-    draft.news.unshift(`Liga UFL: ${row.name} anoto ${row.goals} gol(es) para ${opponentName}`);
+    addNews(draft, code, `Liga UFL: ${row.name} anoto ${row.goals} gol(es) para ${opponentName}`);
   });
-  draft.news.unshift(`Liga UFL: tarjetas ${myTeamName} ${teamCards} - ${opponentCards} ${opponentName}`);
+  addNews(draft, code, `Liga UFL: tarjetas ${myTeamName} ${teamCards} - ${opponentCards} ${opponentName}`);
 
   if (mvpPlayerName) {
-    draft.news.unshift(`Liga UFL: jugador del partido ${mvpPlayerName}`);
+    addNews(draft, code, `Liga UFL: jugador del partido ${mvpPlayerName}`);
   }
 
   const myStanding = draft.standings.find((team) => team.name === myTeamName);
@@ -1801,7 +1842,7 @@ app.post("/drafts/:code/results", (req, res) => {
     });
   }
 
-  maybeAdvanceFantasyRoundBlock(draft, lobby);
+  maybeAdvanceFantasyRoundBlock(draft, lobby, code);
 
   const totalMatches =
     lobby.leagueType === "Fantasia"
@@ -1809,7 +1850,7 @@ app.post("/drafts/:code/results", (req, res) => {
       : getLeagueSize(lobby.format) * 2;
 
   if (draft.leagueMatchCount >= totalMatches) {
-    appendSeasonWinnerIfNeeded(draft);
+    appendSeasonWinnerIfNeeded(draft, code);
   }
 
   sendDraftUpdate(code);
@@ -1860,7 +1901,7 @@ app.post("/drafts/:code/cpu-result", (req, res) => {
   draft.leagueMatchCount = Number(draft.leagueMatchCount || 0) + 1;
   syncUnavailablePlayers(draft);
   maybeTriggerRandomEvent(code, draft);
-  draft.news.unshift(`Liga UFL: resultado CPU cargado para ${cpuTeamA} y ${cpuTeamB}`);
+  addNews(draft, code, `Liga UFL: resultado CPU cargado para ${cpuTeamA} y ${cpuTeamB}`);
 
   const totalMatches =
     lobby.leagueType === "Fantasia"
@@ -1868,7 +1909,7 @@ app.post("/drafts/:code/cpu-result", (req, res) => {
       : getLeagueSize(lobby.format) * 2;
 
   if (draft.leagueMatchCount >= totalMatches) {
-    appendSeasonWinnerIfNeeded(draft);
+    appendSeasonWinnerIfNeeded(draft, code);
   }
 
   markScheduleMatchPlayed(draft, cpuTeamAStanding.key, cpuTeamBStanding.key, derivedResult);
@@ -1903,7 +1944,7 @@ app.post("/drafts/:code/cpu-team-name", (req, res) => {
 
   cpuTeam.name = trimmedName;
   syncStandingsWithTeams(draft, lobby);
-  draft.news.unshift(`Liga UFL: el organizador renombro un equipo CPU a ${trimmedName}`);
+  addNews(draft, code, `Liga UFL: el organizador renombro un equipo CPU a ${trimmedName}`);
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });
