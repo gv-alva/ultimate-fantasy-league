@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.611";
+const SERVER_VERSION = "v0.612";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -301,7 +301,7 @@ const getNewsPayload = (draft, code) =>
   (draft.news || [])
     .filter((item) => item && typeof item === "object" && item.code === code)
     .map((item) => item.text)
-    .slice(0, 80);
+    .slice(0, 30);
 
 const syncStandingsWithTeams = (draft, lobby) => {
   if (!draft || !lobby) return;
@@ -844,6 +844,12 @@ const getDraftPayload = (code) => {
       rebuildFantasyStandingsFromSchedule(draft, lobby);
       draft.needsBroadcast = true;
     }
+  }
+
+  if (draft.needsBroadcast) {
+    Promise.resolve(saveLeagueState(code)).catch((error) => {
+      console.error("No se pudo guardar la tabla reconstruida", error.message);
+    });
   }
 
   return {

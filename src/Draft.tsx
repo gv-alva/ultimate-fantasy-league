@@ -779,11 +779,17 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       real: true,
     }));
     const size = settings.format === "Pequena" ? 8 : settings.format === "Corta" ? 10 : 20;
+    const serverCpuTeams = cpuTeams.map((team) => ({
+      key: team.key,
+      name: team.name,
+      real: false,
+    }));
+    const fallbackCpuTeams = generatedClubNames
+      .filter((name) => !realTeams.some((team) => team.name === name))
+      .slice(0, Math.max(size - realTeams.length, 0))
+      .map((name, index) => ({ key: `cpu-${index + 1}`, name, real: false }));
     const generated = settings.fillCpuTeams
-      ? generatedClubNames
-          .filter((name) => !realTeams.some((team) => team.name === name))
-          .slice(0, Math.max(size - realTeams.length, 0))
-          .map((name) => ({ key: name, name, real: false }))
+      ? (serverCpuTeams.length > 0 ? serverCpuTeams : fallbackCpuTeams)
       : [];
     const allTeams = [...realTeams, ...generated].slice(
       0,
@@ -795,7 +801,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       ...team,
       champions: settings.champions && index < championsLimit,
     }));
-  }, [players, settings.champions, settings.fillCpuTeams, settings.format, teams]);
+  }, [cpuTeams, players, settings.champions, settings.fillCpuTeams, settings.format, teams]);
 
   useEffect(() => {
     if (leagueTeams.length === 0) return;
