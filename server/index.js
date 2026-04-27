@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.608";
+const SERVER_VERSION = "v0.609";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -522,14 +522,41 @@ const applyStandingResult = (draft, teamAName, teamBName, scoreA, scoreB) => {
   );
 };
 
+const applyStandingResultByKeys = (draft, teamAKey, teamBKey, scoreA, scoreB) => {
+  draft.standings = sortStandings(
+    draft.standings.map((team) => {
+      if (team.key !== teamAKey && team.key !== teamBKey) return team;
+
+      const isTeamA = team.key === teamAKey;
+      const goalsForValue = isTeamA ? scoreA : scoreB;
+      const goalsAgainstValue = isTeamA ? scoreB : scoreA;
+      const win = goalsForValue > goalsAgainstValue ? 1 : 0;
+      const draw = goalsForValue === goalsAgainstValue ? 1 : 0;
+      const loss = goalsForValue < goalsAgainstValue ? 1 : 0;
+
+      return {
+        ...team,
+        played: team.played + 1,
+        wins: team.wins + win,
+        draws: team.draws + draw,
+        losses: team.losses + loss,
+        gf: team.gf + goalsForValue,
+        ga: team.ga + goalsAgainstValue,
+        pts: team.pts + (win ? 3 : draw ? 1 : 0),
+      };
+    })
+  );
+};
+
 const getVisibleRoundStart = (draft) => draft.visibleRoundStart || 1;
 
 const maybeAdvanceFantasyRoundBlock = (draft, lobby) => {
-  if (lobby.leagueType !== "Fantasia" || !draft.schedule?.length) return;
+  if (lobby.leagueType !== "Fantasia" || !draft.schedule?.length) return 0;
 
   const visibleRoundStart = getVisibleRoundStart(draft);
   const visibleRounds = draft.schedule.slice(visibleRoundStart - 1, visibleRoundStart + 4);
   const managerKeys = new Set(lobby.players);
+  let simulatedMatches = 0;
 
   visibleRounds.forEach((roundMatches) => {
     roundMatches.forEach((match) => {
@@ -540,10 +567,17 @@ const maybeAdvanceFantasyRoundBlock = (draft, lobby) => {
         const homeName = getTeamNameByKey(draft, match.homeKey);
         const awayName = getTeamNameByKey(draft, match.awayKey);
         const simulated = simulateCpuMatchResult(homeName, awayName);
-        applyStandingResult(draft, homeName, awayName, simulated.homeGoals, simulated.awayGoals);
+        applyStandingResultByKeys(
+          draft,
+          match.homeKey,
+          match.awayKey,
+          simulated.homeGoals,
+          simulated.awayGoals
+        );
         match.played = true;
         match.result = simulated;
         draft.leagueMatchCount = Number(draft.leagueMatchCount || 0) + 1;
+        simulatedMatches += 1;
         syncUnavailablePlayers(draft);
         maybeTriggerRandomEvent("fantasy-block", draft);
         draft.news.unshift(
@@ -563,6 +597,8 @@ const maybeAdvanceFantasyRoundBlock = (draft, lobby) => {
       draft.visibleRoundStart = nextStart;
     }
   }
+
+  return simulatedMatches;
 };
 
 const syncUnavailablePlayers = (draft) => {
@@ -754,7 +790,10 @@ const getDraftPayload = (code) => {
 
   syncStandingsWithTeams(draft, lobby);
   if (lobby?.leagueType === "Fantasia") {
-    maybeAdvanceFantasyRoundBlock(draft, lobby);
+    const simulatedMatches = maybeAdvanceFantasyRoundBlock(draft, lobby);
+    if (simulatedMatches > 0) {
+      draft.needsBroadcast = true;
+    }
   }
 
   return {
@@ -1055,7 +1094,13 @@ app.get("/drafts/:code", (req, res) => {
     return res.status(404).json({ error: "Draft no encontrado" });
   }
 
-  res.json(getDraftPayload(code));
+  const payload = getDraftPayload(code);
+  res.json(payload);
+
+  if (draft.needsBroadcast) {
+    draft.needsBroadcast = false;
+    setTimeout(() => sendDraftUpdate(code), 0);
+  }
 });
 
 app.get("/drafts/:code/events", (req, res) => {
@@ -1071,11 +1116,17 @@ app.get("/drafts/:code/events", (req, res) => {
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
 
-  res.write(`data: ${JSON.stringify(getDraftPayload(code))}\n\n`);
+  const payload = getDraftPayload(code);
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
 
   const clients = draftClients.get(code) || [];
   clients.push(res);
   draftClients.set(code, clients);
+
+  if (draft.needsBroadcast) {
+    draft.needsBroadcast = false;
+    setTimeout(() => sendDraftUpdate(code), 0);
+  }
 
   req.on("close", () => {
     const activeClients = draftClients.get(code) || [];
@@ -1792,7 +1843,19 @@ app.post("/drafts/:code/cpu-result", (req, res) => {
         ? { homeGoals: 2, awayGoals: 1 }
         : { homeGoals: 1, awayGoals: 2 };
 
-  applyStandingResult(draft, cpuTeamA, cpuTeamB, derivedResult.homeGoals, derivedResult.awayGoals);
+  const cpuTeamAStanding = draft.standings.find((team) => team.name === cpuTeamA);
+  const cpuTeamBStanding = draft.standings.find((team) => team.name === cpuTeamB);
+  if (!cpuTeamAStanding || !cpuTeamBStanding) {
+    return res.status(404).json({ error: "No se encontraron los equipos CPU en la tabla" });
+  }
+
+  applyStandingResultByKeys(
+    draft,
+    cpuTeamAStanding.key,
+    cpuTeamBStanding.key,
+    derivedResult.homeGoals,
+    derivedResult.awayGoals
+  );
 
   draft.leagueMatchCount = Number(draft.leagueMatchCount || 0) + 1;
   syncUnavailablePlayers(draft);
@@ -1808,11 +1871,7 @@ app.post("/drafts/:code/cpu-result", (req, res) => {
     appendSeasonWinnerIfNeeded(draft);
   }
 
-  const cpuTeamAStanding = draft.standings.find((team) => team.name === cpuTeamA);
-  const cpuTeamBStanding = draft.standings.find((team) => team.name === cpuTeamB);
-  if (cpuTeamAStanding && cpuTeamBStanding) {
-    markScheduleMatchPlayed(draft, cpuTeamAStanding.key, cpuTeamBStanding.key, derivedResult);
-  }
+  markScheduleMatchPlayed(draft, cpuTeamAStanding.key, cpuTeamBStanding.key, derivedResult);
 
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
