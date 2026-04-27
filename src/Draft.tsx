@@ -168,6 +168,56 @@ const groupLabels: Record<PositionGroup, string> = {
   DEL: "Delantero",
 };
 
+const emptyStanding = (
+  team: Pick<Standing, "key" | "name" | "real" | "champions">
+): Standing => ({
+  key: team.key,
+  name: team.name,
+  real: team.real,
+  champions: team.champions,
+  played: 0,
+  wins: 0,
+  draws: 0,
+  losses: 0,
+  gf: 0,
+  ga: 0,
+  pts: 0,
+});
+
+const applyScheduleResultToStanding = (
+  table: Map<string, Standing>,
+  teamKey: string,
+  goalsFor: number,
+  goalsAgainst: number
+) => {
+  const team = table.get(teamKey);
+  if (!team) return;
+
+  const win = goalsFor > goalsAgainst ? 1 : 0;
+  const draw = goalsFor === goalsAgainst ? 1 : 0;
+  const loss = goalsFor < goalsAgainst ? 1 : 0;
+
+  table.set(teamKey, {
+    ...team,
+    played: team.played + 1,
+    wins: team.wins + win,
+    draws: team.draws + draw,
+    losses: team.losses + loss,
+    gf: team.gf + goalsFor,
+    ga: team.ga + goalsAgainst,
+    pts: team.pts + (win ? 3 : draw ? 1 : 0),
+  });
+};
+
+const sortLeagueStandings = (table: Standing[]) =>
+  [...table].sort(
+    (leftTeam, rightTeam) =>
+      rightTeam.pts - leftTeam.pts ||
+      (rightTeam.gf - rightTeam.ga) - (leftTeam.gf - leftTeam.ga) ||
+      rightTeam.gf - leftTeam.gf ||
+      leftTeam.name.localeCompare(rightTeam.name)
+  );
+
 const sponsorNames = ["Naiq", "Adibas", "Pumma", "Under Armoury", "Jordyn"];
 const sponsorCategories = [
   "Ingreso por ganar",
@@ -794,13 +844,53 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     });
   }, [leagueTeams]);
 
+  const scheduleDerivedStandings = useMemo(() => {
+    if (settings.leagueType !== "Fantasia" || leagueTeams.length === 0) {
+      return standings;
+    }
+
+    const table = new Map<string, Standing>(
+      leagueTeams.map((team) => [team.key, emptyStanding(team)])
+    );
+
+    schedule.flat().forEach((match) => {
+      if (!match.played || !match.result) return;
+
+      applyScheduleResultToStanding(
+        table,
+        match.homeKey,
+        Number(match.result.homeGoals) || 0,
+        Number(match.result.awayGoals) || 0
+      );
+      applyScheduleResultToStanding(
+        table,
+        match.awayKey,
+        Number(match.result.awayGoals) || 0,
+        Number(match.result.homeGoals) || 0
+      );
+    });
+
+    return sortLeagueStandings([...table.values()]);
+  }, [leagueTeams, schedule, settings.leagueType, standings]);
+
   const currentTeam = teams[currentUser];
   const hasConfirmed = confirmedOwners.includes(currentUser);
   const isOrganizer = currentUser === organizer;
   const currentAuctionPlayers = auctionOptions[auctionStage] || [];
+  const displayStandings = settings.leagueType === "Fantasia" ? scheduleDerivedStandings : standings;
+  const managerMatchCount = settings.leagueType === "Fantasia"
+    ? schedule
+        .flat()
+        .filter(
+          (match) =>
+            match.played &&
+            match.result &&
+            (players.includes(match.homeKey) || players.includes(match.awayKey))
+        ).length
+    : leagueMatchCount;
   const totalSeasonMatches =
     settings.leagueType === "Fantasia"
-      ? standings.length * Math.max(standings.length - 1, 0)
+      ? displayStandings.length * Math.max(displayStandings.length - 1, 0)
       : leagueTeams.length * 2;
   const midSeasonMatch = Math.floor(totalSeasonMatches / 2);
   const transferWindowOpen =
@@ -825,7 +915,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const mvpOptions = opponentIsManager
     ? [...currentTeamPlayers, ...opponentPlayers]
     : currentTeamPlayers;
-  const standingsNameByKey = new Map(standings.map((team) => [team.key, team.name]));
+  const standingsNameByKey = new Map(displayStandings.map((team) => [team.key, team.name]));
   cpuTeams.forEach((team) => standingsNameByKey.set(team.key, team.name));
   const visibleRounds = settings.leagueType === "Fantasia"
     ? schedule.slice(visibleRoundStart - 1, visibleRoundStart + 4)
@@ -1434,7 +1524,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const renderInicio = () => (
     <section className="draft-panel">
       <h2>Noticias de la liga</h2>
-      <p>Liga {leagueCode} | Jornada {leagueMatchCount}/{totalSeasonMatches}</p>
+      <p>Liga {leagueCode} | Partidos manager {managerMatchCount}/{totalSeasonMatches}</p>
 
       {serverPhase === "dashboard" && (
         <button
@@ -1564,11 +1654,14 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       </div>
       {tableView === "tabla" ? (
         <div className="league-table">
-          {standings.map((team, index) => (
+          {displayStandings.map((team, index) => (
             <div key={team.key} className="league-row rich">
               <span>{index + 1}</span>
               <strong>{team.name}</strong>
               <small>{team.played} PJ</small>
+              <small>{team.wins} G</small>
+              <small>{team.draws} E</small>
+              <small>{team.losses} P</small>
               <em>{team.champions ? "Champions" : "Liga"}</em>
               <b>{team.pts} pts</b>
             </div>
@@ -1814,7 +1907,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                 <span>Rival</span>
                 <select className="input" value={opponentName} onChange={(e) => setOpponentName(e.target.value)}>
                   <option value="">Selecciona</option>
-                  {standings.filter((team) => team.name !== (currentTeam?.name || currentUser)).map((team) => (
+                  {displayStandings.filter((team) => team.name !== (currentTeam?.name || currentUser)).map((team) => (
                     <option key={team.name}>{team.name}</option>
                   ))}
                 </select>
@@ -1928,7 +2021,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                 <span>Equipo A</span>
                 <select className="input" value={cpuTeamA} onChange={(e) => setCpuTeamA(e.target.value)}>
                   <option value="">Selecciona</option>
-                  {standings.filter((team) => !players.includes(team.name)).map((team) => (
+                  {displayStandings.filter((team) => !team.real).map((team) => (
                     <option key={team.name}>{team.name}</option>
                   ))}
                 </select>
@@ -1937,7 +2030,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                 <span>Equipo B</span>
                 <select className="input" value={cpuTeamB} onChange={(e) => setCpuTeamB(e.target.value)}>
                   <option value="">Selecciona</option>
-                  {standings.filter((team) => !players.includes(team.name)).map((team) => (
+                  {displayStandings.filter((team) => !team.real).map((team) => (
                     <option key={team.name}>{team.name}</option>
                   ))}
                 </select>

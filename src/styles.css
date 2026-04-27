@@ -456,7 +456,7 @@ body {
 }
 
 .league-row.rich {
-  grid-template-columns: 32px 1fr auto auto auto;
+  grid-template-columns: 32px minmax(90px, 1fr) repeat(5, auto) auto;
 }
 
 .league-row span,
@@ -997,7 +997,12 @@ body {
   }
 
   .league-row.rich {
-    grid-template-columns: 28px 1fr;
+    grid-template-columns: 24px minmax(92px, 1fr) repeat(3, auto);
+  }
+
+  .league-row.rich em,
+  .league-row.rich b {
+    grid-column: 2 / -1;
   }
 
   .table-actions,
