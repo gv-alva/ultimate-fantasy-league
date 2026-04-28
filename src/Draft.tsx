@@ -1973,8 +1973,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                       Negociar con manager
                     </button>
                     <button
-                      className={`small-action ${playerProtected ? "" : "muted"}`}
-                      disabled={!playerProtected}
+                      className={`small-action ${playerProtected ? "protected-action" : "muted"}`}
                       onClick={(event) => {
                         event.stopPropagation();
                         payClause(player);
@@ -2270,8 +2269,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                     Negociar con manager
                   </button>
                   <button
-                    className={`small-action ${isProtected ? "" : "muted"}`}
-                    disabled={!isProtected}
+                    className={`small-action ${isProtected ? "protected-action" : "muted"}`}
                     onClick={() => payClause(selectedPlayer)}
                   >
                     Pagar clausula
