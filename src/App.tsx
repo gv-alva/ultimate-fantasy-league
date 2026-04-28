@@ -4,7 +4,7 @@ import Draft from "./Draft";
 import Lobby from "./Lobby";
 import logo from "./assets/logo.png";
 
-const APP_VERSION = "0.712";
+const APP_VERSION = "0.713";
 
 type LobbyData = {
   code: string;
@@ -113,6 +113,28 @@ export default function App() {
     });
   };
 
+  const loadSavedLeagues = async (user: string) => {
+    if (!user) {
+      setSavedLeagues([]);
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/users/${encodeURIComponent(user)}/leagues`);
+      if (!response.ok) {
+        throw new Error("No se pudieron cargar las ligas del usuario");
+      }
+
+      const data = await response.json();
+      const serverLeagues: SavedLeague[] = Array.isArray(data.leagues) ? data.leagues : [];
+      setSavedLeagues(serverLeagues);
+      localStorage.setItem(getSavedLeaguesKey(user), JSON.stringify(serverLeagues));
+    } catch (error) {
+      const stored = localStorage.getItem(getSavedLeaguesKey(user));
+      setSavedLeagues(stored ? JSON.parse(stored) : []);
+    }
+  };
+
   const removeSavedLeague = (code: string) => {
     if (!currentUser) return;
 
@@ -129,8 +151,7 @@ export default function App() {
       return;
     }
 
-    const stored = localStorage.getItem(getSavedLeaguesKey(currentUser));
-    setSavedLeagues(stored ? JSON.parse(stored) : []);
+    loadSavedLeagues(currentUser);
   }, [currentUser]);
 
   useEffect(() => {
@@ -205,6 +226,11 @@ export default function App() {
       cancelled = true;
     };
   }, [screen, savedLeagues, currentUser]);
+
+  useEffect(() => {
+    if (screen !== "continue" || !currentUser) return;
+    loadSavedLeagues(currentUser);
+  }, [screen, currentUser]);
 
   useEffect(() => {
     if (screen === "lobby" && lobbyStatus === "started") {

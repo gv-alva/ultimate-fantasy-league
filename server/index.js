@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.712";
+const SERVER_VERSION = "v0.713";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -1173,6 +1173,26 @@ app.post("/users", async (req, res) => {
 app.get("/users", async (req, res) => {
   const users = (await getStoredUsers()).map(({ id, username }) => ({ id, username }));
   res.json(users);
+});
+
+app.get("/users/:username/leagues", (req, res) => {
+  const username = String(req.params.username || "").trim();
+
+  if (!username) {
+    return res.status(400).json({ error: "Falta el usuario" });
+  }
+
+  const leagues = Array.from(lobbies.entries())
+    .filter(([, lobby]) => Array.isArray(lobby.players) && lobby.players.includes(username))
+    .map(([code, lobby]) => ({
+      code,
+      leagueName: lobby.leagueName,
+      creator: lobby.creator,
+      status: lobby.status || "waiting",
+      updatedAt: Date.now(),
+    }));
+
+  res.json({ leagues });
 });
 
 app.put("/users/:id", async (req, res) => {
