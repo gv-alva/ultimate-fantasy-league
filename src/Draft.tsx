@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
 const TEAM_SIZE_TARGET = 20;
@@ -577,6 +577,8 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [showResultForm, setShowResultForm] = useState(false);
   const [showCpuForm, setShowCpuForm] = useState(false);
   const [showCpuRenameForm, setShowCpuRenameForm] = useState(false);
+  const previousServerPhaseRef = useRef<ServerPhase | null>(null);
+  const hasHydratedFromEventsRef = useRef(false);
   const [clubName, setClubName] = useState("");
   const [opponentName, setOpponentName] = useState("");
   const [goalsFor, setGoalsFor] = useState("0");
@@ -670,25 +672,40 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       setCpuTeams(draft.cpuTeams || []);
       setVisibleRoundStart(draft.visibleRoundStart || 1);
 
+      const previousServerPhase = previousServerPhaseRef.current;
+      const isFirstHydration = !hasHydratedFromEventsRef.current;
+      const phaseChanged = previousServerPhase !== draft.phase;
+
       if (draft.phase === "dashboard") {
         setPhase("initial");
-        setActiveTab("Inicio");
+        if (isFirstHydration || phaseChanged) {
+          setActiveTab("Inicio");
+        }
       }
 
       if (draft.phase === "auction") {
         setPhase("auction");
-        setActiveTab("Transferencia");
+        if (isFirstHydration || phaseChanged) {
+          setActiveTab("Transferencia");
+        }
       }
 
       if (draft.phase === "market") {
         setPhase("market");
-        setActiveTab("Transferencia");
+        if (isFirstHydration || phaseChanged) {
+          setActiveTab("Transferencia");
+        }
       }
 
       if (draft.phase === "season") {
         setPhase("initial");
-        setActiveTab("Inicio");
+        if (isFirstHydration || phaseChanged) {
+          setActiveTab("Inicio");
+        }
       }
+
+      previousServerPhaseRef.current = draft.phase;
+      hasHydratedFromEventsRef.current = true;
     };
 
     events.onerror = () => {
