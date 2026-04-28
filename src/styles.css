@@ -749,20 +749,38 @@ body {
   margin-top: 8px;
 }
 
+.mini-player-actions {
+  margin-top: 14px;
+  position: relative;
+  z-index: 2;
+}
+
 .small-action {
-  grid-column: 1 / -1;
   min-height: 34px;
+  width: 100%;
+  padding: 10px 12px;
   border: none;
   border-radius: 10px;
   background: #eab308;
   color: #02040a;
   font-weight: bold;
   cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease, background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.small-action:active {
+  transform: scale(0.98);
 }
 
 .small-action.danger {
   background: #ef4444;
   color: white;
+}
+
+.small-action.protected-action {
+  background: linear-gradient(135deg, #facc15, #d97706);
+  color: #111827;
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.35);
 }
 
 .small-action.muted {
@@ -869,14 +887,15 @@ body {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 10px;
+  position: relative;
+  z-index: 2;
 }
 
 .card-grid .offer-actions {
-  grid-column: 1 / -1;
   display: grid;
   grid-template-columns: 1fr;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 0;
 }
 
 .continue-actions {

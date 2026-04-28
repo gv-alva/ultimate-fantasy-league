@@ -536,6 +536,7 @@ const decorateTeams = (
         0,
       sponsor: currentTeam?.sponsor || createSponsor(owner, ownerIndex),
       squad: currentTeam?.squad || [],
+      protectedPlayerIds: currentTeam?.protectedPlayerIds || [],
     };
 
     return acc;
@@ -1302,6 +1303,29 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       return;
     }
 
+    const payload = (await res.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      setTeams((currentTeams) => {
+        const nextTeams = decorateTeams(payload.teams || {}, players, settings.money, settings.salaryCap);
+        const incomingCurrentTeam = nextTeams[currentUser];
+        const localCurrentTeam = currentTeams[currentUser];
+
+        if (incomingCurrentTeam && localCurrentTeam?.name && !incomingCurrentTeam.name) {
+          nextTeams[currentUser] = {
+            ...incomingCurrentTeam,
+            name: localCurrentTeam.name,
+          };
+        }
+
+        return nextTeams;
+      });
+      setNews(payload.news || []);
+      setInbox(payload.inbox || {});
+      setPendingSignings(payload.pendingSignings || []);
+      setOffers(payload.offers || []);
+      return;
+    }
+
     setTeams((currentTeams) => {
       const currentTeamState = currentTeams[currentUser];
       if (!currentTeamState) return currentTeams;
@@ -1507,7 +1531,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         <div className="mini-player-topline">
           <strong>{player.Name}</strong>
           {isProtectedPlayer(playerOwners.get(player.ID), player.ID) && (
-            <span className="player-protection-badge">Blindado</span>
+            <span className="player-protection-badge">Candado activo</span>
           )}
         </div>
         <span>{player.Position} | GLB {player.OVR}</span>
@@ -1523,8 +1547,12 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
             {player.unavailableReason}
           </small>
         )}
+        {action && (
+          <div className="mini-player-actions" onClick={(event) => event.stopPropagation()}>
+            {action}
+          </div>
+        )}
       </div>
-      {action}
     </article>
   );
 
@@ -1671,16 +1699,16 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         <div className="card-grid">
           {(currentTeam?.squad || []).map((player) =>
             renderPlayerCard(player, (
-              <div className="offer-actions">
+              <div className="offer-actions" onClick={(event) => event.stopPropagation()}>
                 <button
-                  className={`small-action ${isProtectedPlayer(currentUser, player.ID) ? "danger" : ""}`}
+                  className={`small-action ${isProtectedPlayer(currentUser, player.ID) ? "protected-action" : ""}`}
                   disabled={!isProtectedPlayer(currentUser, player.ID) && protectedCount >= 2}
                   onClick={(event) => {
                     event.stopPropagation();
                     toggleProtection(player, !isProtectedPlayer(currentUser, player.ID));
                   }}
                 >
-                  {isProtectedPlayer(currentUser, player.ID) ? "Quitar blindaje" : "Asegurar jugador"}
+                  {isProtectedPlayer(currentUser, player.ID) ? "Blindado" : "Asegurar jugador"}
                 </button>
                 <button
                   className="small-action danger"
@@ -1934,7 +1962,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
               return renderPlayerCard(
                 player,
                 isOwnedByOther ? (
-                  <div className="offer-actions">
+                  <div className="offer-actions" onClick={(event) => event.stopPropagation()}>
                     <button
                       className="small-action"
                       onClick={(event) => {
@@ -2235,7 +2263,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                   )}
               </div>
             </div>
-            <div className="offer-actions modal-player-actions">
+            <div className="offer-actions modal-player-actions" onClick={(event) => event.stopPropagation()}>
               {ownedByOtherClub && (
                 <>
                   <button className="small-action" onClick={() => sendOffer(selectedPlayer)}>
@@ -2257,11 +2285,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
               )}
               {ownedByCurrentClub && (
                 <button
-                  className={`small-action ${isProtected ? "danger" : ""}`}
+                  className={`small-action ${isProtected ? "protected-action" : ""}`}
                   disabled={!canProtectMore}
                   onClick={() => toggleProtection(selectedPlayer, !isProtected)}
                 >
-                  {isProtected ? "Quitar blindaje" : "Asegurar jugador"}
+                  {isProtected ? "Blindado" : "Asegurar jugador"}
                 </button>
               )}
             </div>
