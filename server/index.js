@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.706";
+const SERVER_VERSION = "v0.707";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -1749,9 +1749,9 @@ app.post("/drafts/:code/offers", (req, res) => {
   }
 
   const buyer = draft.teams[from];
-  const seller = owner ? draft.teams[owner] : null;
+  const seller = to ? draft.teams[to] : null;
 
-  if (!buyer || buyer.budget < Number(amount) || buyer.squad.length >= TEAM_SIZE_TARGET) {
+  if (!buyer || !seller || buyer.budget < Number(amount) || buyer.squad.length >= TEAM_SIZE_TARGET) {
     return res.status(400).json({ error: "No puedes enviar esta oferta por presupuesto o plantilla" });
   }
 
