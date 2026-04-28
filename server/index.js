@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.705";
+const SERVER_VERSION = "v0.706";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -260,6 +260,8 @@ const getTrainingCost = (overall) => {
   if (overall <= 95) return 12;
   return 20;
 };
+
+const TRAINABLE_STAT_KEYS = ["PAC", "SHO", "PAS", "DRI", "DEF", "PHY"];
 
 const getTeamPayload = (team) => ({
   ...team,
@@ -1673,13 +1675,18 @@ app.post("/drafts/:code/train", (req, res) => {
   }
 
   const nextOverall = Number(player.OVR) < 75 ? 75 : Number(player.OVR) + 1;
-
-  team.budget -= cost;
-  team.squad[playerIndex] = {
+  const trainedPlayer = {
     ...player,
     OVR: nextOverall,
     marketValue: Number(player.marketValue || 0) + cost,
   };
+
+  TRAINABLE_STAT_KEYS.forEach((key) => {
+    trainedPlayer[key] = Math.min(99, (Number(player[key]) || 0) + 1);
+  });
+
+  team.budget -= cost;
+  team.squad[playerIndex] = trainedPlayer;
   if (draft.organizer) {
     if (!draft.inbox[draft.organizer]) {
       draft.inbox[draft.organizer] = [];
@@ -1748,10 +1755,6 @@ app.post("/drafts/:code/offers", (req, res) => {
     return res.status(400).json({ error: "No puedes enviar esta oferta por presupuesto o plantilla" });
   }
 
-  if (seller && isPlayerProtected(seller, playerId)) {
-    return res.status(409).json({ error: `${player.Name} esta blindado y solo puede salir por clausula` });
-  }
-
   draft.offers.unshift({
     id: `${playerId}-${Date.now()}`,
     from,
@@ -1791,8 +1794,8 @@ app.post("/drafts/:code/pay-clause", (req, res) => {
     return res.status(409).json({ error: getNegotiationBlockedMessage(player.Name) });
   }
 
-  if (!isPlayerProtected(seller, playerId)) {
-    return res.status(400).json({ error: "Este jugador no tiene clausula activa" });
+  if (isPlayerProtected(seller, playerId)) {
+    return res.status(400).json({ error: `${player.Name} esta blindado y no puedes pagar su clausula` });
   }
 
   if (

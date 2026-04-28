@@ -597,6 +597,64 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [tableView, setTableView] = useState<"tabla" | "partidos">("tabla");
   const [visibleRoundStart, setVisibleRoundStart] = useState(1);
 
+  const applyDraftPayload = (draft: DraftEvent) => {
+    setServerPhase(draft.phase);
+    setOrganizer(draft.organizer);
+    setConfirmedOwners(draft.confirmedOwners || []);
+    setAuctionStage(draft.auctionStage || 0);
+    setBidCounts(draft.bidCounts || {});
+    setTeams((currentTeams) => {
+      const nextTeams = decorateTeams(draft.teams || {}, players, settings.money, settings.salaryCap);
+      const incomingCurrentTeam = nextTeams[currentUser];
+      const localCurrentTeam = currentTeams[currentUser];
+      const currentUserConfirmed = (draft.confirmedOwners || []).includes(currentUser);
+
+      if (
+        !currentUserConfirmed &&
+        localCurrentTeam &&
+        localCurrentTeam.squad.length > 0 &&
+        incomingCurrentTeam &&
+        incomingCurrentTeam.squad.length === 0
+      ) {
+        nextTeams[currentUser] = {
+          ...incomingCurrentTeam,
+          name: localCurrentTeam.name,
+          squad: localCurrentTeam.squad,
+        };
+      }
+
+      return nextTeams;
+    });
+    setOffers(draft.offers || []);
+    setPendingSignings(draft.pendingSignings || []);
+    setNews(draft.news || []);
+    setLeagueMatchCount(draft.leagueMatchCount || 0);
+    setInbox(draft.inbox || {});
+    setStandings(draft.standings || []);
+    setSchedule(draft.schedule || []);
+    setCpuTeams(draft.cpuTeams || []);
+    setVisibleRoundStart(draft.visibleRoundStart || 1);
+
+    if (draft.phase === "dashboard") {
+      setPhase("initial");
+    }
+
+    if (draft.phase === "auction") {
+      setPhase("auction");
+    }
+
+    if (draft.phase === "market") {
+      setPhase("market");
+    }
+
+    if (draft.phase === "season") {
+      setPhase("initial");
+    }
+
+    previousServerPhaseRef.current = draft.phase;
+    hasHydratedFromEventsRef.current = true;
+  };
+
   useEffect(() => {
     setInitialPicks({});
     setAuctionOptions([]);
@@ -634,83 +692,10 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         onLogout();
         return;
       }
-
-      setServerPhase(draft.phase);
-      setOrganizer(draft.organizer);
-      setConfirmedOwners(draft.confirmedOwners || []);
-      setAuctionStage(draft.auctionStage || 0);
-      setBidCounts(draft.bidCounts || {});
-      setTeams((currentTeams) => {
-        const nextTeams = decorateTeams(draft.teams || {}, players, settings.money, settings.salaryCap);
-        const incomingCurrentTeam = nextTeams[currentUser];
-        const localCurrentTeam = currentTeams[currentUser];
-        const currentUserConfirmed = (draft.confirmedOwners || []).includes(currentUser);
-
-        if (
-          !currentUserConfirmed &&
-          localCurrentTeam &&
-          localCurrentTeam.squad.length > 0 &&
-          incomingCurrentTeam &&
-          incomingCurrentTeam.squad.length === 0
-        ) {
-          nextTeams[currentUser] = {
-            ...incomingCurrentTeam,
-            name: localCurrentTeam.name,
-            squad: localCurrentTeam.squad,
-          };
-        }
-
-        return nextTeams;
-      });
-      setOffers(draft.offers || []);
-      setPendingSignings(draft.pendingSignings || []);
-      setNews(draft.news || []);
-      setLeagueMatchCount(draft.leagueMatchCount || 0);
-      setInbox(draft.inbox || {});
-      setStandings(draft.standings || []);
-      setSchedule(draft.schedule || []);
-      setCpuTeams(draft.cpuTeams || []);
-      setVisibleRoundStart(draft.visibleRoundStart || 1);
-
-      const previousServerPhase = previousServerPhaseRef.current;
-      const isFirstHydration = !hasHydratedFromEventsRef.current;
-      const phaseChanged = previousServerPhase !== draft.phase;
-
-      if (draft.phase === "dashboard") {
-        setPhase("initial");
-        if (isFirstHydration || phaseChanged) {
-          setActiveTab("Inicio");
-        }
-      }
-
-      if (draft.phase === "auction") {
-        setPhase("auction");
-        if (isFirstHydration || phaseChanged) {
-          setActiveTab("Transferencia");
-        }
-      }
-
-      if (draft.phase === "market") {
-        setPhase("market");
-        if (isFirstHydration || phaseChanged) {
-          setActiveTab("Transferencia");
-        }
-      }
-
-      if (draft.phase === "season") {
-        setPhase("initial");
-        if (isFirstHydration || phaseChanged) {
-          setActiveTab("Inicio");
-        }
-      }
-
-      previousServerPhaseRef.current = draft.phase;
-      hasHydratedFromEventsRef.current = true;
+      applyDraftPayload(draft);
     };
 
-    events.onerror = () => {
-      events.close();
-    };
+    events.onerror = () => {};
 
     return () => {
       cancelled = true;
@@ -1050,6 +1035,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       });
 
       if (response.ok) {
+        const payload = (await response.json().catch(() => null)) as DraftEvent | null;
+        if (payload?.teams) {
+          applyDraftPayload(payload);
+        }
+        alert(`${player.Name} acepto el sueldo de ${offeredSalary}k por temporada`);
         return true;
       }
 
@@ -1140,7 +1130,14 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     });
 
     if (!res.ok) {
-      alert("Aun no se puede iniciar la subasta");
+      const errorData = await res.json().catch(() => null);
+      alert(errorData?.error || "Aun no se puede iniciar la subasta");
+      return;
+    }
+
+    const payload = (await res.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
     }
   };
 
@@ -1176,7 +1173,8 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     });
 
     if (!res.ok) {
-      alert("No se pudo registrar la puja");
+      const errorData = await res.json().catch(() => null);
+      alert(errorData?.error || "No se pudo registrar la puja");
     }
   };
 
@@ -1196,6 +1194,12 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     if (!res.ok) {
       const errorData = await res.json().catch(() => null);
       alert(errorData?.error || "Solo el organizador puede pasar de etapa");
+      return;
+    }
+
+    const payload = (await res.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
     }
   };
 
@@ -1259,6 +1263,10 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       return;
     }
 
+    const payload = (await res.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
+    }
     alert("Oferta enviada al otro manager");
   };
 
@@ -1292,6 +1300,10 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       return;
     }
 
+    const payload = (await res.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
+    }
     const success = await negotiateSalaryWithPlayer(player, clauseValue(player), "clause");
     if (success) setSelectedPlayer(null);
   };
@@ -1367,6 +1379,12 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     if (!res.ok) {
       const errorData = await res.json().catch(() => null);
       alert(errorData?.error || "No se pudo iniciar la liga");
+      return;
+    }
+
+    const payload = (await res.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
     }
   };
 
@@ -1380,7 +1398,14 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     });
 
     if (!res.ok) {
-      alert("No se pudo procesar la oferta");
+      const errorData = await res.json().catch(() => null);
+      alert(errorData?.error || "No se pudo procesar la oferta");
+      return;
+    }
+
+    const payload = (await res.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
     }
   };
 
@@ -1442,6 +1467,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       return;
     }
 
+    const payload = (await response.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
+    }
+
     setShowResultForm(false);
     setOpponentName("");
     setGoalsFor("0");
@@ -1479,6 +1509,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       return;
     }
 
+    const payload = (await response.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
+    }
+
     setShowCpuForm(false);
     setCpuTeamA("");
     setCpuTeamB("");
@@ -1508,6 +1543,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       alert(errorData?.error || "No se pudo renombrar el equipo CPU");
       return;
     }
+
+    const payload = (await response.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
+    }
   };
 
   const trainPlayer = async (player: Player) => {
@@ -1528,7 +1568,10 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       return;
     }
 
-    const data = await response.json().catch(() => null);
+    const data = (await response.json().catch(() => null)) as (DraftEvent & { playerName?: string; nextOverall?: number }) | null;
+    if (data?.teams) {
+      applyDraftPayload(data);
+    }
     alert(`${data?.playerName || player.Name} subio a ${data?.nextOverall || player.OVR} de media`);
   };
 
@@ -1990,7 +2033,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                       Negociar con manager
                     </button>
                     <button
-                      className={`small-action ${playerProtected ? "protected-action" : "muted"}`}
+                      className={`small-action ${playerProtected ? "muted" : "protected-action"}`}
                       onClick={(event) => {
                         event.stopPropagation();
                         payClause(player);
@@ -2285,7 +2328,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                     Negociar con manager
                   </button>
                   <button
-                    className={`small-action ${isProtected ? "protected-action" : "muted"}`}
+                    className={`small-action ${isProtected ? "muted" : "protected-action"}`}
                     onClick={() => payClause(selectedPlayer)}
                   >
                     Pagar clausula
