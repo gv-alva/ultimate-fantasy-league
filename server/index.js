@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.703";
+const SERVER_VERSION = "v0.704";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -303,6 +303,41 @@ const addNews = (draft, code, text) => {
     draft.news = [];
   }
   draft.news.unshift({ code, text, createdAt: Date.now() });
+};
+
+const getDraftPlayerById = (draft, playerId) => {
+  for (const team of Object.values(draft?.teams || {})) {
+    const foundPlayer = team.squad.find((player) => String(player.ID) === String(playerId));
+    if (foundPlayer) {
+      return foundPlayer;
+    }
+  }
+
+  return getPlayerById(playerId);
+};
+
+const getLeaguePlayers = (draft, { limit = 100, search = "" } = {}) => {
+  const normalizedSearch = String(search || "").trim().toLowerCase();
+  const overrides = new Map();
+
+  Object.values(draft?.teams || {}).forEach((team) => {
+    team.squad.forEach((player) => {
+      overrides.set(String(player.ID), player);
+    });
+  });
+
+  const mergedPlayers = loadPlayers().map((player) => ({
+    ...player,
+    ...(overrides.get(String(player.ID)) || {}),
+  }));
+
+  const filteredPlayers = normalizedSearch
+    ? mergedPlayers.filter((player) =>
+        String(player.Name || "").toLowerCase().includes(normalizedSearch)
+      )
+    : mergedPlayers;
+
+  return filteredPlayers.slice(0, Math.min(Number(limit) || 100, 2000));
 };
 
 const isCpuVsCpuNews = (draft, text) => {
@@ -1069,6 +1104,24 @@ app.get("/players/:id", (req, res) => {
   res.json(player);
 });
 
+app.get("/drafts/:code/players", (req, res) => {
+  const code = String(req.params.code).trim();
+  const draft = ensureDraft(code);
+
+  if (!draft) {
+    return res.status(404).json({ error: "Draft no encontrado" });
+  }
+
+  const limit = Math.min(Number(req.query.limit) || 100, 2000);
+  const search = String(req.query.search || "");
+  const players = getLeaguePlayers(draft, { limit, search });
+
+  res.json({
+    total: players.length,
+    players,
+  });
+});
+
 app.post("/lobbies", async (req, res) => {
   const { leagueName, username } = req.body;
   const maxManagers = Number(req.body.managers) || 4;
@@ -1285,7 +1338,7 @@ app.post("/drafts/:code/bid", (req, res) => {
   const { username, playerId, amount } = req.body;
   const draft = ensureDraft(code);
   const lobby = lobbies.get(code);
-  const player = getPlayerById(playerId);
+  const player = getDraftPlayerById(draft, playerId);
   const team = draft?.teams[username];
 
   if (!draft || !lobby) {
@@ -1326,7 +1379,7 @@ app.post("/drafts/:code/bid", (req, res) => {
 
 app.post("/drafts/:code/next-stage", (req, res) => {
   const code = String(req.params.code).trim();
-  const { username, winners = [] } = req.body;
+  const { username } = req.body;
   const draft = ensureDraft(code);
   const lobby = lobbies.get(code);
 
@@ -1338,10 +1391,20 @@ app.post("/drafts/:code/next-stage", (req, res) => {
     return res.status(403).json({ error: "Solo el organizador puede pasar de etapa" });
   }
 
+  const winners = Object.values(
+    (draft.bids || []).reduce((acc, bid) => {
+      const currentWinner = acc[String(bid.playerId)];
+      if (!currentWinner || Number(bid.amount) > Number(currentWinner.amount)) {
+        acc[String(bid.playerId)] = bid;
+      }
+      return acc;
+    }, {})
+  );
+
   winners.forEach((winner) => {
-    addNews(draft, code, `Fabrizio Romano: ${winner.owner} gano a ${winner.playerName} por ${winner.amount}M`);
-    const player = getPlayerById(winner.playerId);
+    const player = getDraftPlayerById(draft, winner.playerId);
     const team = draft.teams[winner.owner];
+    addNews(draft, code, `Fabrizio Romano: ${winner.owner} gano a ${player?.Name || winner.playerId} por ${winner.amount}M`);
     if (
       player &&
       team &&
@@ -1355,9 +1418,9 @@ app.post("/drafts/:code/next-stage", (req, res) => {
         player,
         amount: Number(winner.amount) || 0,
       });
-      addNews(draft, code, `Liga UFL: ${team.name} debe negociar el sueldo de ${winner.playerName} para cerrar el fichaje`);
+      addNews(draft, code, `Liga UFL: ${team.name} debe negociar el sueldo de ${player.Name} para cerrar el fichaje`);
     } else if (team) {
-      addNews(draft, code, `Liga UFL: ${team.name} no pudo cerrar a ${winner.playerName} por limite de plantilla`);
+      addNews(draft, code, `Liga UFL: ${team.name} no pudo cerrar a ${player?.Name || winner.playerName} por limite de plantilla`);
     }
   });
 
@@ -1386,7 +1449,7 @@ app.post("/drafts/:code/negotiate", (req, res) => {
     return res.status(404).json({ error: "Draft no encontrado" });
   }
 
-  const player = getPlayerById(playerId);
+  const player = getDraftPlayerById(draft, playerId);
   const team = draft.teams[username];
   const owner = findPlayerOwner(draft, playerId);
   const pendingSigning = (draft.pendingSignings || []).find(
@@ -1545,7 +1608,7 @@ app.post("/drafts/:code/buy", (req, res) => {
     return res.status(404).json({ error: "Draft no encontrado" });
   }
 
-  const player = getPlayerById(playerId);
+  const player = getDraftPlayerById(draft, playerId);
   const team = draft.teams[username];
   const alreadyOwned = findPlayerOwner(draft, playerId);
 
@@ -1630,7 +1693,7 @@ app.post("/drafts/:code/train", (req, res) => {
   }
   addNews(draft, code, `Liga UFL: ${team.name} mejoro a ${player.Name} a ${nextOverall} de media`);
   sendDraftUpdate(code);
-  res.json(getDraftPayload(code));
+  res.json({ playerName: player.Name, nextOverall, ...getDraftPayload(code) });
 });
 
 app.post("/drafts/:code/offers", (req, res) => {
@@ -1642,7 +1705,7 @@ app.post("/drafts/:code/offers", (req, res) => {
     return res.status(404).json({ error: "Draft no encontrado" });
   }
 
-  const player = getPlayerById(playerId);
+  const player = getDraftPlayerById(draft, playerId);
   const to = Object.keys(draft.teams).find((owner) =>
     draft.teams[owner].squad.some((item) => String(item.ID) === String(playerId))
   );
@@ -1712,7 +1775,7 @@ app.post("/drafts/:code/pay-clause", (req, res) => {
     return res.status(404).json({ error: "Draft no encontrado" });
   }
 
-  const player = getPlayerById(playerId);
+  const player = getDraftPlayerById(draft, playerId);
   const buyer = draft.teams[username];
   const owner = findPlayerOwner(draft, playerId);
   const seller = owner ? draft.teams[owner] : null;

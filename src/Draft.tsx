@@ -564,7 +564,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [confirmedOwners, setConfirmedOwners] = useState<string[]>([]);
   const [auctionStage, setAuctionStage] = useState(0);
   const [auctionOptions, setAuctionOptions] = useState<Player[][]>([]);
-  const [bids, setBids] = useState<Bid[]>([]);
+  const [, setBids] = useState<Bid[]>([]);
   const [bidCounts, setBidCounts] = useState<Record<string, number>>({});
   const [news, setNews] = useState<string[]>([]);
   const [offerView, setOfferView] = useState<"recibidas" | "enviadas">("recibidas");
@@ -753,7 +753,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     }
 
     const controller = new AbortController();
-    fetch(`${API_URL}/players?search=${encodeURIComponent(query)}&limit=40`, {
+    fetch(`${API_URL}/drafts/${leagueCode}/players?search=${encodeURIComponent(query)}&limit=40`, {
       signal: controller.signal,
     })
       .then((res) => res.json())
@@ -768,13 +768,19 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       .catch(() => setResults([]));
 
     return () => controller.abort();
-  }, [search, phase, teams, currentUser, leagueMatchCount, settings.format]);
+  }, [search, phase, teams, currentUser, leagueMatchCount, settings.format, leagueCode]);
 
   useEffect(() => {
     if (pool.length === 0 || auctionOptions.length > 0) return;
 
     setAuctionOptions(buildAuctionStages(pool, leagueCode));
   }, [pool, auctionOptions.length, leagueCode]);
+
+  useEffect(() => {
+    if (settings.leagueType !== "Fantasia" && tableView !== "tabla") {
+      setTableView("tabla");
+    }
+  }, [settings.leagueType, tableView]);
 
   const leagueTeams = useMemo(() => {
     const realTeams = players.map((player) => ({
@@ -887,7 +893,10 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const hasConfirmed = confirmedOwners.includes(currentUser);
   const isOrganizer = currentUser === organizer;
   const currentAuctionPlayers = auctionOptions[auctionStage] || [];
-  const displayStandings = settings.leagueType === "Fantasia" ? scheduleDerivedStandings : standings;
+  const displayStandings = useMemo(
+    () => sortLeagueStandings(settings.leagueType === "Fantasia" ? scheduleDerivedStandings : standings),
+    [scheduleDerivedStandings, settings.leagueType, standings]
+  );
   const managerMatchCount = settings.leagueType === "Fantasia"
     ? schedule
         .flat()
@@ -911,7 +920,6 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   });
   const isProtectedPlayer = (owner: string | undefined, playerId: number) =>
     owner ? (teams[owner]?.protectedPlayerIds || []).some((id) => Number(id) === Number(playerId)) : false;
-  const protectedCount = (currentTeam?.protectedPlayerIds || []).length;
   const pendingReceived = offers.filter(
     (offer) => offer.to === currentUser && offer.status === "pending"
   ).length;
@@ -1156,14 +1164,6 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   };
 
   const resolveAuctionStage = async () => {
-    const winners = currentAuctionPlayers.flatMap((player) => {
-      const playerBids = bids
-        .filter((bid) => bid.playerId === player.ID)
-        .sort((a, b) => b.amount - a.amount);
-      const winner = playerBids[0];
-      return winner ? [{ player, winner }] : [];
-    });
-
     setBids([]);
 
     const res = await fetch(`${API_URL}/drafts/${leagueCode}/next-stage`, {
@@ -1173,17 +1173,12 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       },
       body: JSON.stringify({
         username: currentUser,
-        winners: winners.map(({ player, winner }) => ({
-          owner: winner.owner,
-          playerId: player.ID,
-          playerName: player.Name,
-          amount: winner.amount,
-        })),
       }),
     });
 
     if (!res.ok) {
-      alert("Solo el organizador puede pasar de etapa");
+      const errorData = await res.json().catch(() => null);
+      alert(errorData?.error || "Solo el organizador puede pasar de etapa");
     }
   };
 
@@ -1513,7 +1508,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     if (!response.ok) {
       const errorData = await response.json().catch(() => null);
       alert(errorData?.error || "No se pudo entrenar al jugador");
+      return;
     }
+
+    const data = await response.json().catch(() => null);
+    alert(`${data?.playerName || player.Name} subio a ${data?.nextOverall || player.OVR} de media`);
   };
 
   const getTrainingLabel = (player: Player) => {
@@ -1702,7 +1701,6 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
               <div className="offer-actions" onClick={(event) => event.stopPropagation()}>
                 <button
                   className={`small-action ${isProtectedPlayer(currentUser, player.ID) ? "protected-action" : ""}`}
-                  disabled={!isProtectedPlayer(currentUser, player.ID) && protectedCount >= 2}
                   onClick={(event) => {
                     event.stopPropagation();
                     toggleProtection(player, !isProtectedPlayer(currentUser, player.ID));
@@ -1761,12 +1759,14 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         >
           TABLA
         </button>
-        <button
-          className={`btn ${tableView === "partidos" ? "btn-login" : "btn-outline"} compact-btn`}
-          onClick={() => setTableView("partidos")}
-        >
-          PARTIDOS
-        </button>
+        {settings.leagueType === "Fantasia" && (
+          <button
+            className={`btn ${tableView === "partidos" ? "btn-login" : "btn-outline"} compact-btn`}
+            onClick={() => setTableView("partidos")}
+          >
+            PARTIDOS
+          </button>
+        )}
         <button className="btn btn-login compact-btn" onClick={() => setShowResultForm(true)}>
           AGREGAR RESULTADO
         </button>
@@ -2238,7 +2238,6 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
               const ownedByCurrentClub = selectedOwner === currentUser;
               const ownedByOtherClub = Boolean(selectedOwner && selectedOwner !== currentUser);
               const isProtected = isProtectedPlayer(selectedOwner, selectedPlayer.ID);
-              const canProtectMore = ownedByCurrentClub && (isProtected || protectedCount < 2);
 
               return (
                 <>
@@ -2284,7 +2283,6 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
               {ownedByCurrentClub && (
                 <button
                   className={`small-action ${isProtected ? "protected-action" : ""}`}
-                  disabled={!canProtectMore}
                   onClick={() => toggleProtection(selectedPlayer, !isProtected)}
                 >
                   {isProtected ? "Blindado" : "Asegurar jugador"}
