@@ -682,8 +682,8 @@ body {
 }
 
 .mini-player-card {
-  min-height: 118px;
-  padding: 12px;
+  min-height: 148px;
+  padding: 14px;
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 14px;
   background: #1e293b;
@@ -692,14 +692,45 @@ body {
   display: grid;
   grid-template-columns: 54px 1fr;
   gap: 12px;
-  align-items: center;
+  align-items: start;
   position: relative;
+}
+
+.mini-player-card.protected {
+  border-color: rgba(234, 179, 8, 0.7);
+  box-shadow: inset 0 0 0 1px rgba(234, 179, 8, 0.18);
 }
 
 .mini-player-card img {
   width: 54px;
   height: 74px;
   object-fit: contain;
+}
+
+.mini-player-content {
+  min-width: 0;
+}
+
+.mini-player-topline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mini-player-topline strong {
+  min-width: 0;
+}
+
+.player-protection-badge {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(234, 179, 8, 0.18);
+  color: #facc15;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 
 .mini-player-card strong,
@@ -712,6 +743,10 @@ body {
 .mini-player-card small {
   color: #94a3b8;
   margin-top: 4px;
+}
+
+.mini-player-meta {
+  margin-top: 8px;
 }
 
 .small-action {
@@ -834,6 +869,14 @@ body {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 10px;
+}
+
+.card-grid .offer-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .continue-actions {

@@ -1299,7 +1299,24 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     if (!res.ok) {
       const errorData = await res.json().catch(() => null);
       alert(errorData?.error || "No se pudo actualizar el blindaje");
+      return;
     }
+
+    setTeams((currentTeams) => {
+      const currentTeamState = currentTeams[currentUser];
+      if (!currentTeamState) return currentTeams;
+
+      const currentProtectedIds = currentTeamState.protectedPlayerIds || [];
+      return {
+        ...currentTeams,
+        [currentUser]: {
+          ...currentTeamState,
+          protectedPlayerIds: protect
+            ? [...currentProtectedIds.filter((id) => Number(id) !== Number(player.ID)), player.ID]
+            : currentProtectedIds.filter((id) => Number(id) !== Number(player.ID)),
+        },
+      };
+    });
   };
 
   const finishTransferWindow = async () => {
@@ -1484,15 +1501,22 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   };
 
   const renderPlayerCard = (player: Player, action?: ReactNode) => (
-    <article className="mini-player-card" key={player.ID} onClick={() => setSelectedPlayer(player)}>
+    <article className={`mini-player-card ${isProtectedPlayer(playerOwners.get(player.ID), player.ID) ? "protected" : ""}`} key={player.ID} onClick={() => setSelectedPlayer(player)}>
       {player.card && <img src={player.card} alt={player.Name} />}
-      <div>
-        <strong>{player.Name}</strong>
+      <div className="mini-player-content">
+        <div className="mini-player-topline">
+          <strong>{player.Name}</strong>
+          {isProtectedPlayer(playerOwners.get(player.ID), player.ID) && (
+            <span className="player-protection-badge">Blindado</span>
+          )}
+        </div>
         <span>{player.Position} | GLB {player.OVR}</span>
         <span>{getPlayerStatusLabel(player)}</span>
-        <small>Valor: {money(player.marketValue)}</small>
-        <small>Clausula: {money(clauseValue(player))}</small>
-        <small>Sueldo aprox temporada: {salaryRange(player)}</small>
+        <div className="mini-player-meta">
+          <small>Valor: {money(player.marketValue)}</small>
+          <small>Clausula: {money(clauseValue(player))}</small>
+          <small>Sueldo aprox temporada: {salaryRange(player)}</small>
+        </div>
         {player.unavailableUntilMatch && Math.max(0, Number(player.unavailableUntilMatch) - leagueMatchCount) > 0 && (
           <small>
             Baja {Math.max(0, Number(player.unavailableUntilMatch) - leagueMatchCount)} partido(s):{" "}
