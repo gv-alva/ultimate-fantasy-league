@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.707";
+const SERVER_VERSION = "v0.708";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -307,6 +307,28 @@ const addNews = (draft, code, text) => {
   draft.news.unshift({ code, text, createdAt: Date.now() });
 };
 
+const addFaunaComment = (draft, code, type, context = {}) => {
+  const commentsByType = {
+    result: [
+      `Fabritzio Fauna: ${context.winner || "Ese club"} dio un baile y el rival va a sonar con ese marcador.`,
+      `Fabritzio Fauna: Partido terminado y hubo un club que mejor ni revise el grupo de WhatsApp.`,
+    ],
+    transfer: [
+      `Fabritzio Fauna: Movimiento picante, esto huele a drama de vestidor y presupuesto temblando.`,
+      `Fabritzio Fauna: Fichaje cerrado y mas de uno ya esta rezando para que no salga mal.`,
+    ],
+    clause: [
+      `Fabritzio Fauna: HACHAZO total. ${context.player || "Ese jugador"} salio volando y en el otro club quedaron viendo al techo.`,
+      `Fabritzio Fauna: HACHAZO en toda regla. La caja registradora sono y el vestidor rival quedo helado.`,
+    ],
+  };
+
+  const options = commentsByType[type] || commentsByType.transfer;
+  const hashBase = `${type}:${context.player || ""}:${context.winner || ""}:${Date.now()}`;
+  const index = Math.abs(hashBase.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0)) % options.length;
+  addNews(draft, code, options[index]);
+};
+
 const getDraftPlayerById = (draft, playerId) => {
   for (const team of Object.values(draft?.teams || {})) {
     const foundPlayer = team.squad.find((player) => String(player.ID) === String(playerId));
@@ -356,8 +378,8 @@ const isCpuVsCpuNews = (draft, text) => {
 const getNewsPayload = (draft, code) =>
   (draft.news || [])
     .filter((item) => item && typeof item === "object" && item.code === code)
-    .map((item) => item.text)
-    .filter((text) => !isCpuVsCpuNews(draft, text))
+    .filter((item) => !isCpuVsCpuNews(draft, item.text))
+    .map((item) => ({ text: item.text, createdAt: item.createdAt }))
     .slice(0, 30);
 
 const syncStandingsWithTeams = (draft, lobby) => {
@@ -1570,6 +1592,10 @@ app.post("/drafts/:code/negotiate", (req, res) => {
           ? `Fabrizio Romano: ${player.Name} deja ${seller.name} por clausula y firma con ${buyer.name} con sueldo de ${offeredSalary}k por temporada`
           : `Fabrizio Romano: ${player.Name} cambia de ${seller.name} a ${buyer.name} con sueldo de ${offeredSalary}k por temporada`
       );
+      addFaunaComment(draft, code, pendingSigning.type === "clause" ? "clause" : "transfer", {
+        player: player.Name,
+        winner: buyer.name,
+      });
       sendDraftUpdate(code);
       return res.json({ mode: pendingSigning.type, ...getDraftPayload(code) });
     }
@@ -1582,6 +1608,7 @@ app.post("/drafts/:code/negotiate", (req, res) => {
     team.squad.push(clonePlayerForTeam(player, offeredSalary));
     draft.pendingSignings = draft.pendingSignings.filter((signing) => signing.id !== pendingSigning.id);
     addNews(draft, code, `Fabrizio Romano: ${team.name} cerro a ${player.Name} tras ganar la subasta, sueldo ${offeredSalary}k por temporada`);
+    addFaunaComment(draft, code, "transfer", { player: player.Name, winner: team.name });
     sendDraftUpdate(code);
     return res.json({ mode: "auction", ...getDraftPayload(code) });
   }
@@ -1594,6 +1621,7 @@ app.post("/drafts/:code/negotiate", (req, res) => {
     team.budget -= player.marketValue;
     team.squad.push(clonePlayerForTeam(player, offeredSalary));
     addNews(draft, code, `Fabrizio Romano: ${team.name} cerro a ${player.Name} por ${player.marketValue}M con sueldo de ${offeredSalary}k`);
+    addFaunaComment(draft, code, "transfer", { player: player.Name, winner: team.name });
     sendDraftUpdate(code);
     return res.json({ mode: "buy", ...getDraftPayload(code) });
   }
@@ -1821,6 +1849,7 @@ app.post("/drafts/:code/pay-clause", (req, res) => {
     heldAmount: clauseAmount,
   });
   addNews(draft, code, `Fabrizio Romano: ${buyer.name} activo la clausula de ${player.Name} por ${clauseAmount}M`);
+  addFaunaComment(draft, code, "clause", { player: player.Name, winner: buyer.name });
   sendDraftUpdate(code);
   res.json({ mode: "clause", ...getDraftPayload(code) });
 });
@@ -2017,6 +2046,9 @@ app.post("/drafts/:code/results", (req, res) => {
   syncUnavailablePlayers(draft);
   maybeTriggerRandomEvent(code, draft);
   addNews(draft, code, `Liga UFL: ${myTeamName} ${scoreA}-${scoreB} ${opponentName}`);
+  if (scoreA !== scoreB) {
+    addFaunaComment(draft, code, "result", { winner: scoreA > scoreB ? myTeamName : opponentName });
+  }
 
   teamScorers.forEach((row) => {
     addNews(draft, code, `Liga UFL: ${row.name} anoto ${row.goals} gol(es) para ${myTeamName}`);

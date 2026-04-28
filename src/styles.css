@@ -83,6 +83,13 @@ body {
   color: white;
 }
 
+.stack-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 18px;
+}
+
 /* INPUT */
 .input {
   width: 100%;
@@ -456,7 +463,7 @@ body {
 }
 
 .league-row.rich {
-  grid-template-columns: 32px minmax(90px, 1fr) repeat(5, auto) auto;
+  grid-template-columns: 28px minmax(110px, 1fr) repeat(6, minmax(30px, auto)) auto auto;
 }
 
 .league-row span,
@@ -794,6 +801,20 @@ body {
   gap: 12px;
 }
 
+.news-day-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.news-day-label {
+  padding: 6px 2px;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
 .news-item {
   padding: 14px;
   border: 1px solid rgba(148, 163, 184, 0.14);
@@ -802,6 +823,19 @@ body {
   display: grid;
   grid-template-columns: 44px 1fr;
   gap: 12px;
+}
+
+.news-item-romano {
+  border-color: rgba(34, 197, 94, 0.35);
+}
+
+.news-item-liga {
+  border-color: rgba(239, 68, 68, 0.28);
+}
+
+.news-item-fauna {
+  border-color: rgba(15, 23, 42, 0.85);
+  background: #0f172a;
 }
 
 .news-avatar {
@@ -813,6 +847,22 @@ body {
   display: grid;
   place-items: center;
   font-weight: bold;
+}
+
+.news-avatar-romano {
+  background: #22c55e;
+  color: #052e16;
+}
+
+.news-avatar-liga {
+  background: #ef4444;
+  color: #fff1f2;
+}
+
+.news-avatar-fauna {
+  background: #02040a;
+  color: #ffffff;
+  border: 1px solid rgba(148, 163, 184, 0.24);
 }
 
 .news-item strong {
@@ -846,6 +896,49 @@ body {
 .table-actions {
   display: flex;
   flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.clubs-view,
+.playoff-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.club-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.club-chip {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 999px;
+  min-height: 40px;
+  padding: 10px 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.club-chip.active {
+  background: linear-gradient(135deg, #facc15 0%, #eab308 100%);
+  color: #02040a;
+  border-color: transparent;
+}
+
+.clubs-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.transfer-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 16px;
 }
@@ -1064,12 +1157,16 @@ body {
   }
 
   .league-row.rich {
-    grid-template-columns: 24px minmax(92px, 1fr) repeat(3, auto);
+    grid-template-columns: 24px minmax(96px, 1fr) repeat(4, auto);
   }
 
   .league-row.rich em,
   .league-row.rich b {
     grid-column: 2 / -1;
+  }
+
+  .transfer-filters {
+    grid-template-columns: 1fr;
   }
 
   .table-actions,

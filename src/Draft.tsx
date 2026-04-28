@@ -3,7 +3,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
 const TEAM_SIZE_TARGET = 20;
 
-type Tab = "Inicio" | "Club" | "Tabla de liga" | "Transferencia";
+type Tab = "Inicio" | "Club" | "Liga" | "Transferencia";
 type DraftPhase = "initial" | "auction" | "market";
 type ServerPhase = "selection" | "dashboard" | "auction" | "market" | "season";
 type PositionGroup = "POR" | "DEF" | "MED" | "EXT" | "DEL";
@@ -150,7 +150,7 @@ type DraftEvent = {
   teams: Record<string, TeamState>;
   offers: Offer[];
   pendingSignings: PendingSigning[];
-  news: string[];
+  news: NewsEntry[];
   leagueMatchCount: number;
   inbox: Record<string, InboxItem[]>;
   standings: Standing[];
@@ -159,7 +159,12 @@ type DraftEvent = {
   visibleRoundStart: number;
 };
 
-const tabs: Tab[] = ["Inicio", "Club", "Tabla de liga", "Transferencia"];
+type NewsEntry = {
+  text: string;
+  createdAt?: number;
+};
+
+const tabs: Tab[] = ["Inicio", "Club", "Liga", "Transferencia"];
 const groups: PositionGroup[] = ["POR", "DEF", "MED", "EXT", "DEL"];
 
 const groupLabels: Record<PositionGroup, string> = {
@@ -296,15 +301,35 @@ const getTrainingCost = (overall: number) => {
   return 20;
 };
 
-const getNewsAuthor = (item: string) =>
-  item.startsWith("Fabrizio Romano") ? "Fabrizio Romano" : "Liga UFL";
+const getNewsAuthor = (item: NewsEntry) =>
+  item.text.startsWith("Fabrizio Romano:")
+    ? "Fabrizio Romano"
+    : item.text.startsWith("Fabritzio Fauna:")
+      ? "Fabritzio Fauna"
+      : "Liga UFL";
 
-const getNewsText = (item: string) =>
-  item.startsWith("Fabrizio Romano: ") ? item.replace("Fabrizio Romano: ", "") : item;
+const getNewsTone = (item: NewsEntry) =>
+  item.text.startsWith("Fabrizio Romano:")
+    ? "romano"
+    : item.text.startsWith("Fabritzio Fauna:")
+      ? "fauna"
+      : "liga";
 
-const getEngagement = (item: string, index: number) => ({
-  likes: ((item.length * 13 + index * 17) % 900) + 80,
-  reposts: ((item.length * 7 + index * 11) % 240) + 20,
+const getNewsText = (item: NewsEntry) =>
+  item.text
+    .replace("Fabrizio Romano: ", "")
+    .replace("Fabritzio Fauna: ", "");
+
+const getNewsDayLabel = (item: NewsEntry) =>
+  new Date(item.createdAt || Date.now()).toLocaleDateString("es-MX", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+
+const getEngagement = (item: NewsEntry, index: number) => ({
+  likes: ((item.text.length * 13 + index * 17) % 900) + 80,
+  reposts: ((item.text.length * 7 + index * 11) % 240) + 20,
 });
 
 const createSponsor = (owner: string, index: number): Sponsor => {
@@ -550,6 +575,9 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [organizer, setOrganizer] = useState("");
   const [pool, setPool] = useState<Player[]>([]);
   const [search, setSearch] = useState("");
+  const [searchMaxValue, setSearchMaxValue] = useState("all");
+  const [searchMinOverall, setSearchMinOverall] = useState("all");
+  const [searchPosition, setSearchPosition] = useState("all");
   const [results, setResults] = useState<Player[]>([]);
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [initialPicks, setInitialPicks] = useState<Record<string, Record<PositionGroup, Player[]>>>({});
@@ -566,7 +594,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [auctionOptions, setAuctionOptions] = useState<Player[][]>([]);
   const [, setBids] = useState<Bid[]>([]);
   const [bidCounts, setBidCounts] = useState<Record<string, number>>({});
-  const [news, setNews] = useState<string[]>([]);
+  const [news, setNews] = useState<NewsEntry[]>([]);
   const [offerView, setOfferView] = useState<"recibidas" | "enviadas">("recibidas");
   const [offers, setOffers] = useState<Offer[]>([]);
   const [pendingSignings, setPendingSignings] = useState<PendingSigning[]>([]);
@@ -594,8 +622,9 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [cpuPointsB, setCpuPointsB] = useState("0");
   const [schedule, setSchedule] = useState<ScheduleMatch[][]>([]);
   const [cpuTeams, setCpuTeams] = useState<CpuTeam[]>([]);
-  const [tableView, setTableView] = useState<"tabla" | "partidos">("tabla");
+  const [tableView, setTableView] = useState<"tabla" | "partidos" | "clubes" | "liguilla">("tabla");
   const [visibleRoundStart, setVisibleRoundStart] = useState(1);
+  const [selectedLeagueClub, setSelectedLeagueClub] = useState("");
 
   const applyDraftPayload = (draft: DraftEvent) => {
     setServerPhase(draft.phase);
@@ -765,12 +794,20 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
           team.squad.forEach((player) => ownerMap.set(player.ID, team.owner));
         });
 
-        setResults((data.players || []).filter((player: Player) => ownerMap.get(player.ID) !== currentUser));
+        setResults(
+          (data.players || []).filter((player: Player) => {
+            if (ownerMap.get(player.ID) === currentUser) return false;
+            if (searchPosition !== "all" && getPlayerGroup(player.Position) !== searchPosition) return false;
+            if (searchMinOverall !== "all" && Number(player.OVR) < Number(searchMinOverall)) return false;
+            if (searchMaxValue !== "all" && Number(player.marketValue) > Number(searchMaxValue)) return false;
+            return true;
+          })
+        );
       })
       .catch(() => setResults([]));
 
     return () => controller.abort();
-  }, [search, phase, teams, currentUser, leagueMatchCount, settings.format, leagueCode]);
+  }, [search, phase, teams, currentUser, leagueMatchCount, settings.format, leagueCode, searchMaxValue, searchMinOverall, searchPosition]);
 
   useEffect(() => {
     if (pool.length === 0 || auctionOptions.length > 0) return;
@@ -943,6 +980,30 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const visibleRounds = settings.leagueType === "Fantasia"
     ? schedule.slice(visibleRoundStart - 1, visibleRoundStart + 4)
     : [];
+  const groupedNews = news.reduce<Array<{ day: string; items: NewsEntry[] }>>((groups, item) => {
+    const day = getNewsDayLabel(item);
+    const existingGroup = groups.find((group) => group.day === day);
+    if (existingGroup) {
+      existingGroup.items.push(item);
+    } else {
+      groups.push({ day, items: [item] });
+    }
+    return groups;
+  }, []);
+  const realLeagueClubs = displayStandings.filter((team) => team.real);
+  const selectedLeagueClubStanding = realLeagueClubs.find((team) => team.key === selectedLeagueClub) || realLeagueClubs[0];
+  const selectedLeagueClubTeam = selectedLeagueClubStanding ? teams[selectedLeagueClubStanding.key] : null;
+  const liguillaTeams = displayStandings.slice(0, 4);
+
+  useEffect(() => {
+    const realLeagueClub = displayStandings.find((team) => team.real);
+    if (!selectedLeagueClub && realLeagueClub) {
+      setSelectedLeagueClub(realLeagueClub.key);
+    }
+    if (selectedLeagueClub && !displayStandings.some((team) => team.key === selectedLeagueClub && team.real)) {
+      setSelectedLeagueClub(realLeagueClub?.key || "");
+    }
+  }, [displayStandings, selectedLeagueClub]);
 
   const getPlayerStatusLabel = (player: Player) => {
     const owner = playerOwners.get(player.ID);
@@ -1715,22 +1776,29 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
 
       <div className="news-list">
         {news.length === 0 && <div className="draft-empty-state">Aun no hay noticias.</div>}
-        {news.map((item, index) => {
-          const engagement = getEngagement(item, index);
-          return (
-            <article key={`${item}-${index}`} className="news-item">
-              <div className="news-avatar">{getNewsAuthor(item).slice(0, 1)}</div>
-              <div>
-                <strong>{getNewsAuthor(item)}</strong>
-                <p>{getNewsText(item)}</p>
-                <div className="news-meta">
-                  <span>{engagement.likes} likes</span>
-                  <span>{engagement.reposts} retweets</span>
-                </div>
-              </div>
-            </article>
-          );
-        })}
+        {groupedNews.map((group) => (
+          <div key={group.day} className="news-day-group">
+            <div className="news-day-label">{group.day}</div>
+            {group.items.map((item, index) => {
+              const engagement = getEngagement(item, index);
+              const author = getNewsAuthor(item);
+              const tone = getNewsTone(item);
+              return (
+                <article key={`${item.text}-${item.createdAt || index}`} className={`news-item news-item-${tone}`}>
+                  <div className={`news-avatar news-avatar-${tone}`}>{author.slice(0, 1)}</div>
+                  <div>
+                    <strong>{author}</strong>
+                    <p>{getNewsText(item)}</p>
+                    <div className="news-meta">
+                      <span>{engagement.likes} likes</span>
+                      <span>{engagement.reposts} retweets</span>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        ))}
       </div>
     </section>
   );
@@ -1811,13 +1879,25 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
 
   const renderTable = () => (
     <section className="draft-panel">
-      <h2>Tabla de liga</h2>
+      <h2>Liga</h2>
       <div className="table-actions">
         <button
           className={`btn ${tableView === "tabla" ? "btn-login" : "btn-outline"} compact-btn`}
           onClick={() => setTableView("tabla")}
         >
           TABLA
+        </button>
+        <button
+          className={`btn ${tableView === "clubes" ? "btn-login" : "btn-outline"} compact-btn`}
+          onClick={() => setTableView("clubes")}
+        >
+          CLUBES
+        </button>
+        <button
+          className={`btn ${tableView === "liguilla" ? "btn-login" : "btn-outline"} compact-btn`}
+          onClick={() => setTableView("liguilla")}
+        >
+          LIGUILLA
         </button>
         {settings.leagueType === "Fantasia" && (
           <button
@@ -1851,10 +1931,61 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
               <small>{team.wins} G</small>
               <small>{team.draws} E</small>
               <small>{team.losses} P</small>
+              <small>{team.gf} GF</small>
+              <small>{team.ga} GC</small>
               <em>{team.champions ? "Champions" : "Liga"}</em>
               <b>{team.pts} pts</b>
             </div>
           ))}
+        </div>
+      ) : tableView === "clubes" ? (
+        <div className="clubs-view">
+          <div className="club-chip-grid">
+            {realLeagueClubs.map((team) => (
+              <button
+                key={team.key}
+                className={`club-chip ${selectedLeagueClubStanding?.key === team.key ? "active" : ""}`}
+                onClick={() => setSelectedLeagueClub(team.key)}
+              >
+                {team.name}
+              </button>
+            ))}
+          </div>
+          {selectedLeagueClubStanding && (
+            <div className="clubs-panel">
+              <div className="draft-list-item">
+                <strong>{selectedLeagueClubStanding.name}</strong>
+                <small>
+                  {selectedLeagueClubStanding.played} PJ | {selectedLeagueClubStanding.wins} G | {selectedLeagueClubStanding.draws} E | {selectedLeagueClubStanding.losses} P
+                </small>
+              </div>
+              <div className="card-grid">
+                {(selectedLeagueClubTeam?.squad || []).map((player) => renderPlayerCard(player))}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : tableView === "liguilla" ? (
+        <div className="playoff-grid">
+          {liguillaTeams.length < 4 ? (
+            <div className="draft-empty-state">Todavia no hay suficientes clubes para mostrar la liguilla.</div>
+          ) : (
+            <>
+              <div className="draft-list-item">
+                <strong>Semifinal 1</strong>
+                <p>{liguillaTeams[0]?.name} vs {liguillaTeams[3]?.name}</p>
+              </div>
+              <div className="draft-list-item">
+                <strong>Semifinal 2</strong>
+                <p>{liguillaTeams[1]?.name} vs {liguillaTeams[2]?.name}</p>
+              </div>
+              <div className="draft-list-item current-round">
+                <strong>Final proyectada</strong>
+                <p>{liguillaTeams[0]?.name} vs {liguillaTeams[1]?.name}</p>
+                <small>La liguilla se actualiza en vivo segun la tabla actual.</small>
+              </div>
+            </>
+          )}
         </div>
       ) : settings.leagueType === "Fantasia" ? (
         <div className="draft-list">
@@ -2012,6 +2143,32 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
+          <div className="transfer-filters">
+            <select className="input" value={searchPosition} onChange={(event) => setSearchPosition(event.target.value)}>
+              <option value="all">Todas las posiciones</option>
+              <option value="POR">Porteros</option>
+              <option value="DEF">Defensas</option>
+              <option value="MED">Mediocampo</option>
+              <option value="EXT">Extremos</option>
+              <option value="DEL">Delanteros</option>
+            </select>
+            <select className="input" value={searchMinOverall} onChange={(event) => setSearchMinOverall(event.target.value)}>
+              <option value="all">Cualquier global</option>
+              <option value="70">70+</option>
+              <option value="75">75+</option>
+              <option value="80">80+</option>
+              <option value="85">85+</option>
+              <option value="90">90+</option>
+            </select>
+            <select className="input" value={searchMaxValue} onChange={(event) => setSearchMaxValue(event.target.value)}>
+              <option value="all">Cualquier valor</option>
+              <option value="10">Hasta 10M</option>
+              <option value="25">Hasta 25M</option>
+              <option value="50">Hasta 50M</option>
+              <option value="100">Hasta 100M</option>
+              <option value="200">Hasta 200M</option>
+            </select>
+          </div>
           <div className="card-grid">
             {search.trim().length < 2 && <div className="draft-empty-state">Busca por nombre para comprar.</div>}
             {results.map((player) => {
@@ -2070,7 +2227,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const renderPanel = () => {
     if (activeTab === "Inicio") return renderInicio();
     if (activeTab === "Club") return renderClub();
-    if (activeTab === "Tabla de liga") return renderTable();
+    if (activeTab === "Liga") return renderTable();
     return renderTransfer();
   };
 

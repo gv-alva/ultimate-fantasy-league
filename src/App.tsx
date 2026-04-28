@@ -4,7 +4,7 @@ import Draft from "./Draft";
 import Lobby from "./Lobby";
 import logo from "./assets/logo.png";
 
-const APP_VERSION = "0.707";
+const APP_VERSION = "0.708";
 
 type LobbyData = {
   code: string;
@@ -708,16 +708,18 @@ export default function App() {
               </select>
             </label>
 
-            <button className="btn btn-login" onClick={createLeague}>
-              CREAR
-            </button>
+            <div className="stack-actions">
+              <button className="btn btn-login" onClick={createLeague}>
+                CREAR
+              </button>
 
-            <button
-              className="btn btn-outline"
-              onClick={() => setScreen("dashboard")}
-            >
-              VOLVER
-            </button>
+              <button
+                className="btn btn-outline"
+                onClick={() => setScreen("dashboard")}
+              >
+                VOLVER
+              </button>
+            </div>
 
           </div>
         </div>
