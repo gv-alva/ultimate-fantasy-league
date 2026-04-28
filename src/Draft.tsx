@@ -45,6 +45,7 @@ type TeamState = {
   budget: number;
   salaryCap: number;
   salaryUsed?: number;
+  protectedPlayerIds?: number[];
   sponsor?: Sponsor;
   squad: Player[];
 };
@@ -79,9 +80,10 @@ type Offer = {
 type PendingSigning = {
   id: string;
   owner: string;
-  type: "auction" | "offer";
+  type: "auction" | "offer" | "clause";
   fromOwner?: string;
   fromClub?: string;
+  buyerClub?: string;
   player: Player;
   amount: number;
 };
@@ -284,6 +286,7 @@ const getPlayerGroup = (position = ""): PositionGroup => {
 const money = (value: number) => `${Math.round(value * 10) / 10}M`;
 const salary = (value: number) => `${Math.round(value)}k`;
 const salaryRange = (player: Player) => `${salary(player.salaryMin || player.salary)} a ${salary(player.salaryMax || player.salary)}`;
+const clauseValue = (player: Player) => Math.round((Number(player.marketValue || 0) * 2) * 10) / 10;
 const getTrainingCost = (overall: number) => {
   if (overall < 75) return 1;
   if (overall <= 80) return 2;
@@ -905,6 +908,9 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   Object.values(teams).forEach((team) => {
     team.squad.forEach((player) => playerOwners.set(player.ID, team.owner));
   });
+  const isProtectedPlayer = (owner: string | undefined, playerId: number) =>
+    owner ? (teams[owner]?.protectedPlayerIds || []).some((id) => Number(id) === Number(playerId)) : false;
+  const protectedCount = (currentTeam?.protectedPlayerIds || []).length;
   const pendingReceived = offers.filter(
     (offer) => offer.to === currentUser && offer.status === "pending"
   ).length;
@@ -987,7 +993,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const negotiateSalaryWithPlayer = async (
     player: Player,
     transferAmount = 0,
-    mode: "buy" | "offer" | "auction" = "buy"
+    mode: "buy" | "offer" | "auction" | "clause" = "buy"
   ) => {
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       const offerText = window.prompt(
@@ -1243,6 +1249,59 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     alert("Oferta enviada al otro manager");
   };
 
+  const payClause = async (player: Player) => {
+    const owner = playerOwners.get(player.ID);
+
+    if (!owner || owner === currentUser) return;
+    if (!currentTeam || currentTeam.budget < clauseValue(player)) {
+      alert("No tienes presupuesto para pagar la clausula");
+      return;
+    }
+    if ((currentTeam.squad?.length || 0) >= TEAM_SIZE_TARGET) {
+      alert(`Tu plantilla ya llego al limite de ${TEAM_SIZE_TARGET} jugadores`);
+      return;
+    }
+
+    const res = await fetch(`${API_URL}/drafts/${leagueCode}/pay-clause`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+        playerId: player.ID,
+      }),
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => null);
+      alert(errorData?.error || "No se pudo pagar la clausula");
+      return;
+    }
+
+    const success = await negotiateSalaryWithPlayer(player, clauseValue(player), "clause");
+    if (success) setSelectedPlayer(null);
+  };
+
+  const toggleProtection = async (player: Player, protect: boolean) => {
+    const res = await fetch(`${API_URL}/drafts/${leagueCode}/protection`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+        playerId: player.ID,
+        action: protect ? "protect" : "unprotect",
+      }),
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => null);
+      alert(errorData?.error || "No se pudo actualizar el blindaje");
+    }
+  };
+
   const finishTransferWindow = async () => {
     const res = await fetch(`${API_URL}/drafts/${leagueCode}/start-season`, {
       method: "POST",
@@ -1432,6 +1491,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         <span>{player.Position} | GLB {player.OVR}</span>
         <span>{getPlayerStatusLabel(player)}</span>
         <small>Valor: {money(player.marketValue)}</small>
+        <small>Clausula: {money(clauseValue(player))}</small>
         <small>Sueldo aprox temporada: {salaryRange(player)}</small>
         {player.unavailableUntilMatch && Math.max(0, Number(player.unavailableUntilMatch) - leagueMatchCount) > 0 && (
           <small>
@@ -1586,18 +1646,29 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       {clubView === "plantilla" && (
         <div className="card-grid">
           {(currentTeam?.squad || []).map((player) =>
-            renderPlayerCard(
-              player,
-              <button
-                className="small-action danger"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  releasePlayer(player);
-                }}
-              >
-                Despedir
-              </button>
-            )
+            renderPlayerCard(player, (
+              <div className="offer-actions">
+                <button
+                  className={`small-action ${isProtectedPlayer(currentUser, player.ID) ? "danger" : ""}`}
+                  disabled={!isProtectedPlayer(currentUser, player.ID) && protectedCount >= 2}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toggleProtection(player, !isProtectedPlayer(currentUser, player.ID));
+                  }}
+                >
+                  {isProtectedPlayer(currentUser, player.ID) ? "Quitar blindaje" : "Asegurar jugador"}
+                </button>
+                <button
+                  className="small-action danger"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    releasePlayer(player);
+                  }}
+                >
+                  Despedir
+                </button>
+              </div>
+            ))
           )}
         </div>
       )}
@@ -1733,7 +1804,9 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
               <span>
                 {signing.type === "auction"
                   ? `Ganaste la subasta por ${money(signing.amount)}`
-                  : `${signing.fromClub || signing.fromOwner} acepto tu oferta por ${money(signing.amount)}`}
+                  : signing.type === "clause"
+                    ? `Activaste la clausula de ${signing.fromClub || signing.fromOwner} por ${money(signing.amount)}`
+                    : `${signing.fromClub || signing.fromOwner} acepto tu oferta por ${money(signing.amount)}`}
               </span>
               <small>Sueldo aprox por temporada: {salaryRange(signing.player)}</small>
               <div className="offer-actions">
@@ -1743,7 +1816,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                     negotiateSalaryWithPlayer(
                       signing.player,
                       signing.amount,
-                      signing.type === "offer" ? "offer" : "auction"
+                      signing.type === "offer"
+                        ? "offer"
+                        : signing.type === "clause"
+                          ? "clause"
+                          : "auction"
                     )
                   }
                 >
@@ -1828,19 +1905,43 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
             {results.map((player) => {
               const owner = playerOwners.get(player.ID);
               const isOwnedByOther = owner && owner !== currentUser;
+              const playerProtected = isProtectedPlayer(owner, player.ID);
 
               return renderPlayerCard(
                 player,
-                <button
-                  className="small-action"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    if (isOwnedByOther) sendOffer(player);
-                    else buyPlayer(player);
-                  }}
-                >
-                  {isOwnedByOther ? `Negociar con ${owner}` : "Comprar"}
-                </button>
+                isOwnedByOther ? (
+                  <div className="offer-actions">
+                    <button
+                      className="small-action"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        sendOffer(player);
+                      }}
+                    >
+                      Negociar con manager
+                    </button>
+                    <button
+                      className={`small-action ${playerProtected ? "" : "muted"}`}
+                      disabled={!playerProtected}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        payClause(player);
+                      }}
+                    >
+                      Pagar clausula
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    className="small-action"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      buyPlayer(player);
+                    }}
+                  >
+                    Comprar
+                  </button>
+                )
               );
             })}
           </div>
@@ -2081,6 +2182,15 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         <div className="player-modal" onClick={() => setSelectedPlayer(null)}>
           <div className="player-modal-card" onClick={(event) => event.stopPropagation()}>
             <button className="modal-close" onClick={() => setSelectedPlayer(null)}>Cerrar</button>
+            {(() => {
+              const selectedOwner = playerOwners.get(selectedPlayer.ID);
+              const ownedByCurrentClub = selectedOwner === currentUser;
+              const ownedByOtherClub = Boolean(selectedOwner && selectedOwner !== currentUser);
+              const isProtected = isProtectedPlayer(selectedOwner, selectedPlayer.ID);
+              const canProtectMore = ownedByCurrentClub && (isProtected || protectedCount < 2);
+
+              return (
+                <>
             <div className="player-hero">
               {selectedPlayer.card && <img src={selectedPlayer.card} alt={selectedPlayer.Name} />}
               <div>
@@ -2089,8 +2199,9 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                 <strong>{selectedPlayer.OVR}</strong>
                 <p>
                   Valor mercado: {money(selectedPlayer.marketValue)} | Puja minima: {money(selectedPlayer.minBid)} |
-                  Sueldo aprox por temporada: {salaryRange(selectedPlayer)}
+                  Clausula: {money(clauseValue(selectedPlayer))} | Sueldo aprox por temporada: {salaryRange(selectedPlayer)}
                 </p>
+                {isProtected && <p>Blindado por clausula</p>}
                 {selectedPlayer.unavailableUntilMatch &&
                   Math.max(0, Number(selectedPlayer.unavailableUntilMatch) - leagueMatchCount) > 0 && (
                     <p>
@@ -2100,6 +2211,36 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                   )}
               </div>
             </div>
+            <div className="offer-actions modal-player-actions">
+              {ownedByOtherClub && (
+                <>
+                  <button className="small-action" onClick={() => sendOffer(selectedPlayer)}>
+                    Negociar con manager
+                  </button>
+                  <button
+                    className={`small-action ${isProtected ? "" : "muted"}`}
+                    disabled={!isProtected}
+                    onClick={() => payClause(selectedPlayer)}
+                  >
+                    Pagar clausula
+                  </button>
+                </>
+              )}
+              {!selectedOwner && (
+                <button className="small-action" onClick={() => buyPlayer(selectedPlayer)}>
+                  Comprar
+                </button>
+              )}
+              {ownedByCurrentClub && (
+                <button
+                  className={`small-action ${isProtected ? "danger" : ""}`}
+                  disabled={!canProtectMore}
+                  onClick={() => toggleProtection(selectedPlayer, !isProtected)}
+                >
+                  {isProtected ? "Quitar blindaje" : "Asegurar jugador"}
+                </button>
+              )}
+            </div>
             <div className="stat-grid">
               {visibleDetails.map((key) => (
                 <div key={key} className="stat-card">
@@ -2108,6 +2249,9 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                 </div>
               ))}
             </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}

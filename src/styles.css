@@ -730,6 +730,11 @@ body {
   color: white;
 }
 
+.small-action.muted {
+  background: #334155;
+  color: #cbd5e1;
+}
+
 .news-list {
   display: flex;
   flex-direction: column;

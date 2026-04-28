@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.612";
+const SERVER_VERSION = "v0.700";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -245,6 +245,13 @@ const hashString = (value) => {
 const getTeamPayroll = (team) =>
   team.squad.reduce((sum, player) => sum + (Number(player.salary) || 0), 0);
 
+const getReleaseClauseValue = (player) => Math.round((Number(player.marketValue || 0) * 2) * 10) / 10;
+
+const getProtectedPlayerIds = (team) => team?.protectedPlayerIds || [];
+
+const isPlayerProtected = (team, playerId) =>
+  getProtectedPlayerIds(team).some((id) => String(id) === String(playerId));
+
 const getTrainingCost = (overall) => {
   if (overall < 75) return 1;
   if (overall <= 80) return 2;
@@ -257,6 +264,7 @@ const getTrainingCost = (overall) => {
 const getTeamPayload = (team) => ({
   ...team,
   salaryUsed: getTeamPayroll(team),
+  protectedPlayerIds: getProtectedPlayerIds(team),
 });
 
 const getPendingSigningPayload = (signing) => ({
@@ -297,10 +305,22 @@ const addNews = (draft, code, text) => {
   draft.news.unshift({ code, text, createdAt: Date.now() });
 };
 
+const isCpuVsCpuNews = (draft, text) => {
+  if (typeof text !== "string" || !text.startsWith("Liga UFL:")) return false;
+
+  const cpuNames = (draft.cpuTeams || []).map((team) => team.name);
+  const managerNames = Object.values(draft.teams || {}).map((team) => team.name);
+  const cpuMatches = cpuNames.filter((name) => text.includes(name)).length;
+  const managerMatches = managerNames.filter((name) => text.includes(name)).length;
+
+  return cpuMatches >= 2 && managerMatches === 0;
+};
+
 const getNewsPayload = (draft, code) =>
   (draft.news || [])
     .filter((item) => item && typeof item === "object" && item.code === code)
     .map((item) => item.text)
+    .filter((text) => !isCpuVsCpuNews(draft, text))
     .slice(0, 30);
 
 const syncStandingsWithTeams = (draft, lobby) => {
@@ -635,7 +655,6 @@ const maybeAdvanceFantasyRoundBlock = (draft, lobby, code) => {
         simulatedMatches += 1;
         syncUnavailablePlayers(draft);
         maybeTriggerRandomEvent(code, draft);
-        addNews(draft, code, `Liga UFL: ${homeName} ${simulated.homeGoals}-${simulated.awayGoals} ${awayName}`);
       }
     });
   });
@@ -912,6 +931,7 @@ const ensureDraft = (code) => {
         name: owner,
         budget: lobby.money,
         salaryCap: lobby.salaryCap,
+        protectedPlayerIds: [],
         squad: [],
       };
       return acc;
@@ -1415,7 +1435,7 @@ app.post("/drafts/:code/negotiate", (req, res) => {
     if (negotiation.attempts >= MAX_NEGOTIATION_ATTEMPTS) {
       delete draft.negotiations[negotiationKey];
       draft.blockedNegotiations[negotiationKey] = draft.transferWindowId + 1;
-      if (pendingSigning?.type === "offer") {
+      if (pendingSigning?.type === "offer" || pendingSigning?.type === "clause") {
         const buyer = draft.teams[pendingSigning.owner];
         const seller = draft.teams[pendingSigning.fromOwner];
         const heldAmount = Number(pendingSigning.heldAmount || transferAmount) || 0;
@@ -1454,7 +1474,7 @@ app.post("/drafts/:code/negotiate", (req, res) => {
   delete draft.negotiations[negotiationKey];
 
   if (pendingSigning) {
-    if (pendingSigning.type === "offer") {
+    if (pendingSigning.type === "offer" || pendingSigning.type === "clause") {
       const seller = draft.teams[pendingSigning.fromOwner];
       const buyer = draft.teams[pendingSigning.owner];
       const sellerOwns = seller?.squad.some((item) => item.ID === player.ID);
@@ -1478,9 +1498,15 @@ app.post("/drafts/:code/negotiate", (req, res) => {
       seller.budget += Number(pendingSigning.heldAmount || transferAmount) || 0;
       buyer.squad.push(clonePlayerForTeam(player, offeredSalary));
       draft.pendingSignings = draft.pendingSignings.filter((signing) => signing.id !== pendingSigning.id);
-      addNews(draft, code, `Fabrizio Romano: ${player.Name} cambia de ${seller.name} a ${buyer.name} con sueldo de ${offeredSalary}k por temporada`);
+      addNews(
+        draft,
+        code,
+        pendingSigning.type === "clause"
+          ? `Fabrizio Romano: ${player.Name} deja ${seller.name} por clausula y firma con ${buyer.name} con sueldo de ${offeredSalary}k por temporada`
+          : `Fabrizio Romano: ${player.Name} cambia de ${seller.name} a ${buyer.name} con sueldo de ${offeredSalary}k por temporada`
+      );
       sendDraftUpdate(code);
-      return res.json({ mode: "offer", ...getDraftPayload(code) });
+      return res.json({ mode: pendingSigning.type, ...getDraftPayload(code) });
     }
 
     if (!canAddPlayerToTeam(team, player, offeredSalary, transferAmount)) {
@@ -1653,9 +1679,14 @@ app.post("/drafts/:code/offers", (req, res) => {
   }
 
   const buyer = draft.teams[from];
+  const seller = owner ? draft.teams[owner] : null;
 
   if (!buyer || buyer.budget < Number(amount) || buyer.squad.length >= TEAM_SIZE_TARGET) {
     return res.status(400).json({ error: "No puedes enviar esta oferta por presupuesto o plantilla" });
+  }
+
+  if (seller && isPlayerProtected(seller, playerId)) {
+    return res.status(409).json({ error: `${player.Name} esta blindado y solo puede salir por clausula` });
   }
 
   draft.offers.unshift({
@@ -1668,6 +1699,99 @@ app.post("/drafts/:code/offers", (req, res) => {
     status: "pending",
   });
   addNews(draft, code, `Fabrizio Romano: ${from} envio oferta por ${player.Name}`);
+  sendDraftUpdate(code);
+  res.json(getDraftPayload(code));
+});
+
+app.post("/drafts/:code/pay-clause", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username, playerId } = req.body;
+  const draft = ensureDraft(code);
+
+  if (!draft) {
+    return res.status(404).json({ error: "Draft no encontrado" });
+  }
+
+  const player = getPlayerById(playerId);
+  const buyer = draft.teams[username];
+  const owner = findPlayerOwner(draft, playerId);
+  const seller = owner ? draft.teams[owner] : null;
+
+  if (!player || !buyer || !owner || owner === username || !seller) {
+    return res.status(400).json({ error: "No se puede ejecutar la clausula de este jugador" });
+  }
+
+  const clauseAmount = getReleaseClauseValue(player);
+  const blockedUntilWindow = getBlockedNegotiationWindow(draft, username, playerId);
+
+  if (draft.transferWindowId < blockedUntilWindow) {
+    return res.status(409).json({ error: getNegotiationBlockedMessage(player.Name) });
+  }
+
+  if (!isPlayerProtected(seller, playerId)) {
+    return res.status(400).json({ error: "Este jugador no tiene clausula activa" });
+  }
+
+  if (
+    buyer.budget < clauseAmount ||
+    buyer.squad.length >= TEAM_SIZE_TARGET ||
+    draft.pendingSignings.some(
+      (signing) => signing.owner === username && String(signing.player.ID) === String(playerId)
+    )
+  ) {
+    return res.status(400).json({ error: "No puedes pagar la clausula por presupuesto o plantilla" });
+  }
+
+  buyer.budget -= clauseAmount;
+  draft.pendingSignings.unshift({
+    id: `clause-${player.ID}-${Date.now()}-${username}`,
+    owner: username,
+    type: "clause",
+    fromOwner: owner,
+    fromClub: seller.name,
+    buyerClub: buyer.name,
+    player,
+    amount: clauseAmount,
+    heldAmount: clauseAmount,
+  });
+  addNews(draft, code, `Fabrizio Romano: ${buyer.name} activo la clausula de ${player.Name} por ${clauseAmount}M`);
+  sendDraftUpdate(code);
+  res.json({ mode: "clause", ...getDraftPayload(code) });
+});
+
+app.post("/drafts/:code/protection", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username, playerId, action } = req.body;
+  const draft = ensureDraft(code);
+
+  if (!draft) {
+    return res.status(404).json({ error: "Draft no encontrado" });
+  }
+
+  const team = draft.teams[username];
+  const player = team?.squad.find((item) => String(item.ID) === String(playerId));
+
+  if (!team || !player) {
+    return res.status(404).json({ error: "Jugador no encontrado en tu club" });
+  }
+
+  const protectedIds = getProtectedPlayerIds(team);
+  const alreadyProtected = isPlayerProtected(team, playerId);
+
+  if (action === "protect") {
+    if (!alreadyProtected && protectedIds.length >= 2) {
+      return res.status(400).json({ error: "Solo puedes blindar a 2 jugadores" });
+    }
+
+    team.protectedPlayerIds = alreadyProtected
+      ? protectedIds
+      : [...protectedIds, player.ID];
+    addNews(draft, code, `Liga UFL: ${team.name} activo la clausula de rescision de ${player.Name}`);
+  } else {
+    team.protectedPlayerIds = protectedIds.filter((id) => String(id) !== String(playerId));
+    addNews(draft, code, `Liga UFL: ${team.name} retiro la clausula de rescision de ${player.Name}`);
+  }
+
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });
@@ -1908,8 +2032,6 @@ app.post("/drafts/:code/cpu-result", (req, res) => {
   draft.leagueMatchCount = Number(draft.leagueMatchCount || 0) + 1;
   syncUnavailablePlayers(draft);
   maybeTriggerRandomEvent(code, draft);
-  addNews(draft, code, `Liga UFL: resultado CPU cargado para ${cpuTeamA} y ${cpuTeamB}`);
-
   const totalMatches =
     lobby.leagueType === "Fantasia"
       ? draft.standings.length * Math.max(draft.standings.length - 1, 0)
