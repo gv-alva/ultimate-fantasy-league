@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.711";
+const SERVER_VERSION = "v0.712";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -366,6 +366,10 @@ const addLeagueComment = (draft, code, type, context = {}) => {
 };
 
 const addFaunaComment = (draft, code, type, context = {}) => {
+  if (Math.random() > 0.5) {
+    return;
+  }
+
   const winner = context.winner || "Ese club";
   const loser = context.loser || context.rival || "el rival";
   const player = context.player || "ese jugador";
@@ -381,6 +385,11 @@ const addFaunaComment = (draft, code, type, context = {}) => {
       `Fabritzio Fauna: Si ${loser} queria competir tenia que avisar. ${winner} lo paseo sin pedir permiso.`,
       `Fabritzio Fauna: Resultado firmado. ${loser} defendio como puerta de cantina y asi le fue.`,
       `Fabritzio Fauna: ${winner} jugo serio y ${loser} hizo cosplay de cono.`,
+      `Fabritzio Fauna: ${loser} fue una caricatura competitiva. ${winner} ni tuvo que despeinarse.`,
+      `Fabritzio Fauna: Lo de ${loser} fue futbol de emergencia. ${winner} lo desarmo con una mano en la cintura.`,
+      `Fabritzio Fauna: ${winner} le dio un repaso obsceno a ${loser}. Eso ya no fue partido, fue humillacion con acta.`,
+      `Fabritzio Fauna: Si ${loser} entreno para esto, mejor que pidan reembolso.`,
+      `Fabritzio Fauna: ${winner} se los comio vivos y ${loser} quedo como decoracion de la jornada.`,
     ],
     transfer: [
       `Fabritzio Fauna: Movimiento picante. En un club celebran y en otro andan contando monedas con lagrimas.`,
@@ -391,6 +400,10 @@ const addFaunaComment = (draft, code, type, context = {}) => {
       `Fabritzio Fauna: ${player} ya tiene nuevo techo. El exclub se quedo viendo como se le iba el tren.`,
       `Fabritzio Fauna: Este fichaje trae humo, drama y egos heridos. Justo como nos gusta.`,
       `Fabritzio Fauna: Movimiento oficial. Unos trabajan el mercado y otros nomas hacen fila para el ridiculo.`,
+      `Fabritzio Fauna: Sacaron a ${player} de un club que negocio como si tuviera sueño.`,
+      `Fabritzio Fauna: Hay directivos que parecen tiburones y otros que parecen cajeros descompuestos. Este movimiento lo demostro.`,
+      `Fabritzio Fauna: ${player} cambio de camiseta y dejo atras un despacho que olia a improvisacion.`,
+      `Fabritzio Fauna: Se movio ${player} y al club vendedor le vieron la cara bonito.`,
     ],
     clause: [
       `Fabritzio Fauna: HACHAZO total. ${player} salio volando y en el otro club quedaron viendo al techo.`,
@@ -401,6 +414,14 @@ const addFaunaComment = (draft, code, type, context = {}) => {
       `Fabritzio Fauna: Le metieron la mano al club rival y ni tiempo les dio de hacerse los ofendidos.`,
       `Fabritzio Fauna: ${player} cambio de escudo por clausula. El otro club hizo berrinche, pero tarde.`,
       `Fabritzio Fauna: Se escucho el HACHAZO desde la otra conferencia. Vaya manera de quitarles a ${player}.`,
+      `Fabritzio Fauna: Le arrancaron a ${player} como quien le quita el plato a alguien distraido. El otro club quedo pintado.`,
+      `Fabritzio Fauna: Clausula pagada y papelon consumado. Al exclub lo zarandearon sin misericordia.`,
+      `Fabritzio Fauna: Lo de ${player} por clausula fue un robo elegante. El rival ni metio las manos.`,
+    ],
+    training: [
+      `Fabritzio Fauna: ${player} entreno y ahora mete mas miedo que varios titulares de adorno.`,
+      `Fabritzio Fauna: Mejoraron a ${player}. Ojo, porque otros clubes siguen durmiendo la siesta tactica.`,
+      `Fabritzio Fauna: ${player} subio de nivel mientras media liga sigue entrenando con tutoriales rotos.`,
     ],
   };
 
@@ -1809,6 +1830,7 @@ app.post("/drafts/:code/train", (req, res) => {
   }
   addNews(draft, code, `Liga UFL: ${team.name} mejoro a ${player.Name} a ${nextOverall} de media`);
   addLeagueComment(draft, code, "training", { player: player.Name, team: team.name });
+  addFaunaComment(draft, code, "training", { player: player.Name, winner: team.name });
   sendDraftUpdate(code);
   res.json({ playerName: player.Name, nextOverall, ...getDraftPayload(code) });
 });

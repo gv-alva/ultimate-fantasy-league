@@ -463,7 +463,68 @@ body {
 }
 
 .league-row.rich {
-  grid-template-columns: 28px minmax(110px, 1fr) repeat(6, minmax(30px, auto)) auto auto;
+  grid-template-columns: 28px minmax(110px, 1fr) minmax(180px, 1.2fr) auto;
+  align-items: start;
+}
+
+.league-rank {
+  padding-top: 4px;
+}
+
+.league-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.league-main strong {
+  overflow-wrap: anywhere;
+}
+
+.league-main em {
+  color: #cbd5e1;
+  font-style: italic;
+}
+
+.league-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.league-stats-grid small,
+.club-summary-stats small {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(2, 6, 23, 0.5);
+  color: #cbd5e1;
+  min-width: 0;
+}
+
+.league-stats-grid small b,
+.club-summary-stats small b {
+  color: #f8fafc;
+}
+
+.league-points {
+  align-self: center;
+  white-space: nowrap;
+}
+
+.club-summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.club-summary-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .league-row span,
@@ -849,6 +910,13 @@ body {
   display: grid;
   place-items: center;
   font-weight: bold;
+  overflow: hidden;
+}
+
+.news-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .news-avatar-romano {
@@ -1206,12 +1274,26 @@ body {
   }
 
   .league-row.rich {
-    grid-template-columns: 24px minmax(96px, 1fr) repeat(4, auto);
+    grid-template-columns: 1fr;
+    gap: 10px;
   }
 
-  .league-row.rich em,
-  .league-row.rich b {
-    grid-column: 2 / -1;
+  .league-rank {
+    padding-top: 0;
+    font-size: 14px;
+  }
+
+  .league-main {
+    gap: 6px;
+  }
+
+  .league-stats-grid,
+  .club-summary-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .league-points {
+    align-self: flex-start;
   }
 
   .transfer-filters {

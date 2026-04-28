@@ -1,4 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import faunaAvatar from "./assets/fauna-avatar.svg";
+import romanoAvatar from "./assets/romano-avatar.svg";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
 const TEAM_SIZE_TARGET = 20;
@@ -329,6 +331,13 @@ const getNewsText = (item: NewsEntry) =>
   item.text
     .replace("Fabrizio Romano: ", "")
     .replace("Fabritzio Fauna: ", "");
+
+const getNewsAvatarImage = (item: NewsEntry) =>
+  item.text.startsWith("Fabrizio Romano:")
+    ? romanoAvatar
+    : item.text.startsWith("Fabritzio Fauna:")
+      ? faunaAvatar
+      : "";
 
 const getNewsDayLabel = (item: NewsEntry) =>
   new Date(item.createdAt || Date.now()).toLocaleDateString("es-MX", {
@@ -1840,9 +1849,12 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
               const engagement = getEngagement(item, index);
               const author = getNewsAuthor(item);
               const tone = getNewsTone(item);
+              const avatarImage = getNewsAvatarImage(item);
               return (
                 <article key={`${item.text}-${item.createdAt || index}`} className={`news-item news-item-${tone}`}>
-                  <div className={`news-avatar news-avatar-${tone}`}>{author.slice(0, 1)}</div>
+                  <div className={`news-avatar news-avatar-${tone}`}>
+                    {avatarImage ? <img src={avatarImage} alt={author} /> : author.slice(0, 1)}
+                  </div>
                   <div>
                     <strong>{author}</strong>
                     <p>{getNewsText(item)}</p>
@@ -1982,16 +1994,20 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         <div className="league-table">
           {displayStandings.map((team, index) => (
             <div key={team.key} className="league-row rich">
-              <span>{index + 1}</span>
-              <strong>{team.name}</strong>
-              <small>{team.played} PJ</small>
-              <small>{team.wins} G</small>
-              <small>{team.draws} E</small>
-              <small>{team.losses} P</small>
-              <small>{team.gf} GF</small>
-              <small>{team.ga} GC</small>
-              <em>{team.champions ? "Champions" : "Liga"}</em>
-              <b>{team.pts} pts</b>
+              <span className="league-rank">{index + 1}</span>
+              <div className="league-main">
+                <strong>{team.name}</strong>
+                <em>{team.champions ? "Champions" : "Liga"}</em>
+              </div>
+              <div className="league-stats-grid">
+                <small><b>{team.played}</b> PJ</small>
+                <small><b>{team.wins}</b> G</small>
+                <small><b>{team.draws}</b> E</small>
+                <small><b>{team.losses}</b> P</small>
+                <small><b>{team.gf}</b> GF</small>
+                <small><b>{team.ga}</b> GC</small>
+              </div>
+              <b className="league-points">{team.pts} pts</b>
             </div>
           ))}
         </div>
@@ -2010,11 +2026,16 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
           </div>
           {selectedLeagueClubStanding && (
             <div className="clubs-panel">
-              <div className="draft-list-item">
+              <div className="draft-list-item club-summary-card">
                 <strong>{selectedLeagueClubStanding.name}</strong>
-                <small>
-                  {selectedLeagueClubStanding.played} PJ | {selectedLeagueClubStanding.wins} G | {selectedLeagueClubStanding.draws} E | {selectedLeagueClubStanding.losses} P
-                </small>
+                <div className="club-summary-stats">
+                  <small><b>{selectedLeagueClubStanding.played}</b> PJ</small>
+                  <small><b>{selectedLeagueClubStanding.wins}</b> G</small>
+                  <small><b>{selectedLeagueClubStanding.draws}</b> E</small>
+                  <small><b>{selectedLeagueClubStanding.losses}</b> P</small>
+                  <small><b>{selectedLeagueClubStanding.gf}</b> GF</small>
+                  <small><b>{selectedLeagueClubStanding.ga}</b> GC</small>
+                </div>
               </div>
               <div className="card-grid">
                 {(selectedLeagueClubTeam?.squad || []).map((player) => renderPlayerCard(player))}
