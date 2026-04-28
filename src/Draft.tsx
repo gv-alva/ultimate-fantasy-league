@@ -159,11 +159,34 @@ type DraftEvent = {
   schedule: ScheduleMatch[][];
   cpuTeams: CpuTeam[];
   visibleRoundStart: number;
+  playoff?: PlayoffState | null;
 };
 
 type NewsEntry = {
   text: string;
   createdAt?: number;
+};
+
+type PlayoffMatch = {
+  stage: "semifinal1" | "semifinal2" | "final";
+  label: string;
+  homeKey: string;
+  awayKey: string;
+  homeName: string;
+  awayName: string;
+  played: boolean;
+  result?: {
+    homeGoals: number;
+    awayGoals: number;
+  } | null;
+  winnerKey?: string;
+};
+
+type PlayoffState = {
+  semifinal1: PlayoffMatch;
+  semifinal2: PlayoffMatch;
+  final: PlayoffMatch;
+  championKey?: string;
 };
 
 const tabs: Tab[] = ["Inicio", "Club", "Liga", "Transferencia"];
@@ -636,6 +659,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [showResultForm, setShowResultForm] = useState(false);
   const [showCpuForm, setShowCpuForm] = useState(false);
   const [showCpuRenameForm, setShowCpuRenameForm] = useState(false);
+  const [showStandingEditForm, setShowStandingEditForm] = useState(false);
   const previousServerPhaseRef = useRef<ServerPhase | null>(null);
   const hasHydratedFromEventsRef = useRef(false);
   const [clubName, setClubName] = useState("");
@@ -656,6 +680,15 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [tableView, setTableView] = useState<"tabla" | "partidos" | "clubes" | "liguilla">("tabla");
   const [visibleRoundStart, setVisibleRoundStart] = useState(1);
   const [selectedLeagueClub, setSelectedLeagueClub] = useState("");
+  const [playoff, setPlayoff] = useState<PlayoffState | null>(null);
+  const [editStandingKey, setEditStandingKey] = useState("");
+  const [editPlayed, setEditPlayed] = useState("0");
+  const [editWins, setEditWins] = useState("0");
+  const [editDraws, setEditDraws] = useState("0");
+  const [editLosses, setEditLosses] = useState("0");
+  const [editGf, setEditGf] = useState("0");
+  const [editGa, setEditGa] = useState("0");
+  const [editPts, setEditPts] = useState("0");
 
   const applyDraftPayload = (draft: DraftEvent) => {
     setServerPhase(draft.phase);
@@ -694,6 +727,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setSchedule(draft.schedule || []);
     setCpuTeams(draft.cpuTeams || []);
     setVisibleRoundStart(draft.visibleRoundStart || 1);
+    setPlayoff(draft.playoff || null);
 
     if (draft.phase === "dashboard") {
       setPhase("initial");
@@ -734,6 +768,8 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setConfirmedOwners([]);
     setShowCpuForm(false);
     setShowCpuRenameForm(false);
+    setShowStandingEditForm(false);
+    setPlayoff(null);
   }, [leagueCode]);
 
   useEffect(() => {
@@ -1060,6 +1096,16 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const selectedLeagueClubStanding = realLeagueClubs.find((team) => team.key === selectedLeagueClub) || realLeagueClubs[0];
   const selectedLeagueClubTeam = selectedLeagueClubStanding ? teams[selectedLeagueClubStanding.key] : null;
   const liguillaTeams = displayStandings.slice(0, 4);
+  const sponsorIncomePreview = (team: TeamState | undefined, goalsFor: number, goalsAgainst: number, cards: number) => {
+    if (!team?.sponsor?.values) return 0;
+
+    let income = 0;
+    if (goalsFor > goalsAgainst) income += Number(team.sponsor.values["Ingreso por ganar"] || 0);
+    else if (goalsFor === goalsAgainst) income += Number(team.sponsor.values["Ingreso por empatar"] || 0);
+    else income += Number(team.sponsor.values["Ingreso por perder"] || 0);
+    income += Number(team.sponsor.values["Tarjetas"] || 0) * cards;
+    return income;
+  };
 
   useEffect(() => {
     const realLeagueClub = displayStandings.find((team) => team.real);
@@ -1569,6 +1615,9 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       return;
     }
 
+    const mySponsorIncome = sponsorIncomePreview(currentTeam, myGoals, rivalGoals, Number(teamCards) || 0);
+    const rivalSponsorIncome = sponsorIncomePreview(opponentTeam, rivalGoals, myGoals, Number(opponentCards) || 0);
+
     const response = await fetch(`${API_URL}/drafts/${leagueCode}/results`, {
       method: "POST",
       headers: {
@@ -1608,6 +1657,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setTeamCards("0");
     setOpponentCards("0");
     setMvpPlayerId("");
+    alert(
+      opponentIsManager
+        ? `Resultado guardado. Patrocinador: ${money(mySponsorIncome)} para tu club y ${money(rivalSponsorIncome)} para ${opponentName}.`
+        : `Resultado guardado. Patrocinador de tu club: ${money(mySponsorIncome)}.`
+    );
   };
 
   const submitCpuResult = async () => {
@@ -1708,6 +1762,127 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     }
 
     return `Sube +1 por ${money(getTrainingCost(Number(player.OVR)))}`;
+  };
+
+  const openStandingEditor = () => {
+    const firstTeam = displayStandings[0];
+    if (!firstTeam) return;
+    setEditStandingKey(firstTeam.key);
+    setEditPlayed(String(firstTeam.played));
+    setEditWins(String(firstTeam.wins));
+    setEditDraws(String(firstTeam.draws));
+    setEditLosses(String(firstTeam.losses));
+    setEditGf(String(firstTeam.gf));
+    setEditGa(String(firstTeam.ga));
+    setEditPts(String(firstTeam.pts));
+    setShowStandingEditForm(true);
+  };
+
+  const syncStandingFormWithTeam = (teamKey: string) => {
+    const team = displayStandings.find((item) => item.key === teamKey);
+    if (!team) return;
+    setEditStandingKey(team.key);
+    setEditPlayed(String(team.played));
+    setEditWins(String(team.wins));
+    setEditDraws(String(team.draws));
+    setEditLosses(String(team.losses));
+    setEditGf(String(team.gf));
+    setEditGa(String(team.ga));
+    setEditPts(String(team.pts));
+  };
+
+  const submitStandingEdit = async () => {
+    const response = await fetch(`${API_URL}/drafts/${leagueCode}/edit-standing`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+        teamKey: editStandingKey,
+        played: Number(editPlayed) || 0,
+        wins: Number(editWins) || 0,
+        draws: Number(editDraws) || 0,
+        losses: Number(editLosses) || 0,
+        gf: Number(editGf) || 0,
+        ga: Number(editGa) || 0,
+        pts: Number(editPts) || 0,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      alert(errorData?.error || "No se pudo editar la tabla");
+      return;
+    }
+
+    const payload = (await response.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
+    }
+    setShowStandingEditForm(false);
+  };
+
+  const canManagePlayoffMatch = (match?: PlayoffMatch | null) =>
+    Boolean(
+      match &&
+      match.homeKey &&
+      match.awayKey &&
+      (isOrganizer || match.homeKey === currentUser || match.awayKey === currentUser)
+    );
+
+  const submitPlayoffResult = async (stage: "semifinal1" | "semifinal2" | "final") => {
+    const match = playoff?.[stage];
+    if (!match) return;
+    const homeGoalsText = window.prompt(`Goles de ${match.homeName}:`, "1");
+    if (homeGoalsText === null) return;
+    const awayGoalsText = window.prompt(`Goles de ${match.awayName}:`, "0");
+    if (awayGoalsText === null) return;
+
+    const response = await fetch(`${API_URL}/drafts/${leagueCode}/playoff-result`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+        stage,
+        homeGoals: Number(homeGoalsText) || 0,
+        awayGoals: Number(awayGoalsText) || 0,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      alert(errorData?.error || "No se pudo guardar el resultado de liguilla");
+      return;
+    }
+
+    const payload = (await response.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
+    }
+  };
+
+  const finishPlayoff = async () => {
+    const response = await fetch(`${API_URL}/drafts/${leagueCode}/finish-playoff`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ username: currentUser }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      alert(errorData?.error || "No se pudo cerrar la liguilla");
+      return;
+    }
+
+    const payload = (await response.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
+    }
   };
 
   const renderPlayerCard = (player: Player, action?: ReactNode) => (
@@ -1981,8 +2156,8 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         </button>
         {isOrganizer && settings.fillCpuTeams && settings.leagueType !== "Fantasia" && (
           <>
-            <button className="btn btn-outline compact-btn" onClick={() => setShowCpuForm(true)}>
-              RESULTADO AUTOMATICO
+            <button className="btn btn-outline compact-btn" onClick={openStandingEditor}>
+              EDITAR TABLA
             </button>
             <button className="btn btn-outline compact-btn" onClick={() => setShowCpuRenameForm(true)}>
               RENOMBRAR CLUBES
@@ -2051,16 +2226,52 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
             <>
               <div className="draft-list-item">
                 <strong>Semifinal 1</strong>
-                <p>{liguillaTeams[0]?.name} vs {liguillaTeams[3]?.name}</p>
+                <p>{playoff?.semifinal1.homeName || liguillaTeams[0]?.name} vs {playoff?.semifinal1.awayName || liguillaTeams[3]?.name}</p>
+                {playoff?.semifinal1.result && (
+                  <small>
+                    {playoff.semifinal1.result.homeGoals}-{playoff.semifinal1.result.awayGoals} | Gana {playoff.semifinal1.result.homeGoals > playoff.semifinal1.result.awayGoals ? playoff.semifinal1.homeName : playoff.semifinal1.awayName}
+                  </small>
+                )}
+                {canManagePlayoffMatch(playoff?.semifinal1) && (
+                  <button className="small-action" onClick={() => submitPlayoffResult("semifinal1")}>
+                    AGREGAR RESULTADO
+                  </button>
+                )}
               </div>
               <div className="draft-list-item">
                 <strong>Semifinal 2</strong>
-                <p>{liguillaTeams[1]?.name} vs {liguillaTeams[2]?.name}</p>
+                <p>{playoff?.semifinal2.homeName || liguillaTeams[1]?.name} vs {playoff?.semifinal2.awayName || liguillaTeams[2]?.name}</p>
+                {playoff?.semifinal2.result && (
+                  <small>
+                    {playoff.semifinal2.result.homeGoals}-{playoff.semifinal2.result.awayGoals} | Gana {playoff.semifinal2.result.homeGoals > playoff.semifinal2.result.awayGoals ? playoff.semifinal2.homeName : playoff.semifinal2.awayName}
+                  </small>
+                )}
+                {canManagePlayoffMatch(playoff?.semifinal2) && (
+                  <button className="small-action" onClick={() => submitPlayoffResult("semifinal2")}>
+                    AGREGAR RESULTADO
+                  </button>
+                )}
               </div>
               <div className="draft-list-item current-round">
-                <strong>Final proyectada</strong>
-                <p>{liguillaTeams[0]?.name} vs {liguillaTeams[1]?.name}</p>
-                <small>La liguilla se actualiza en vivo segun la tabla actual.</small>
+                <strong>Final</strong>
+                <p>{playoff?.final.homeName || "Pendiente"} vs {playoff?.final.awayName || "Pendiente"}</p>
+                {playoff?.final.result ? (
+                  <small>
+                    {playoff.final.result.homeGoals}-{playoff.final.result.awayGoals} | Campeon {playoff.final.result.homeGoals > playoff.final.result.awayGoals ? playoff.final.homeName : playoff.final.awayName}
+                  </small>
+                ) : (
+                  <small>La final se habilita cuando se definan ambas semifinales.</small>
+                )}
+                {canManagePlayoffMatch(playoff?.final) && (
+                  <button className="small-action" onClick={() => submitPlayoffResult("final")}>
+                    AGREGAR RESULTADO FINAL
+                  </button>
+                )}
+                {isOrganizer && (
+                  <button className="small-action protected-action" onClick={finishPlayoff}>
+                    TERMINAR LIGUILLA
+                  </button>
+                )}
               </div>
             </>
           )}
@@ -2493,6 +2704,56 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
               </label>
             </div>
             <button className="btn btn-login" onClick={submitManagerResult}>GUARDAR RESULTADO</button>
+          </div>
+        </div>
+      )}
+
+      {showStandingEditForm && settings.leagueType !== "Fantasia" && (
+        <div className="player-modal" onClick={() => setShowStandingEditForm(false)}>
+          <div className="player-modal-card" onClick={(event) => event.stopPropagation()}>
+            <button className="modal-close" onClick={() => setShowStandingEditForm(false)}>Cerrar</button>
+            <h2>Editar tabla</h2>
+            <div className="form-grid">
+              <label className="field">
+                <span>Equipo</span>
+                <select className="input" value={editStandingKey} onChange={(e) => syncStandingFormWithTeam(e.target.value)}>
+                  {displayStandings.map((team) => (
+                    <option key={team.key} value={team.key}>
+                      {team.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Partidos jugados</span>
+                <input className="input" value={editPlayed} onChange={(e) => setEditPlayed(e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Ganados</span>
+                <input className="input" value={editWins} onChange={(e) => setEditWins(e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Empatados</span>
+                <input className="input" value={editDraws} onChange={(e) => setEditDraws(e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Perdidos</span>
+                <input className="input" value={editLosses} onChange={(e) => setEditLosses(e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Goles a favor</span>
+                <input className="input" value={editGf} onChange={(e) => setEditGf(e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Goles en contra</span>
+                <input className="input" value={editGa} onChange={(e) => setEditGa(e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Puntos</span>
+                <input className="input" value={editPts} onChange={(e) => setEditPts(e.target.value)} />
+              </label>
+            </div>
+            <button className="btn btn-login" onClick={submitStandingEdit}>GUARDAR</button>
           </div>
         </div>
       )}

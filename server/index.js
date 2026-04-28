@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.713";
+const SERVER_VERSION = "v0.714";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -244,6 +244,8 @@ const hashString = (value) => {
 
 const getTeamPayroll = (team) =>
   team.squad.reduce((sum, player) => sum + (Number(player.salary) || 0), 0);
+
+const formatMoney = (value) => `${Math.round(Number(value || 0) * 10) / 10}M`;
 
 const getReleaseClauseValue = (player) => Math.round((Number(player.marketValue || 0) * 2) * 10) / 10;
 
@@ -540,6 +542,106 @@ const appendSeasonWinnerIfNeeded = (draft, code) => {
 
   draft.seasonWinnerAnnounced = true;
   addNews(draft, code, `Liga UFL: ${winner.name} es campeon de la temporada`);
+};
+
+const emptyPlayoffMatch = (stage, label) => ({
+  stage,
+  label,
+  homeKey: "",
+  awayKey: "",
+  homeName: "",
+  awayName: "",
+  played: false,
+  result: null,
+  winnerKey: "",
+});
+
+const ensurePlayoff = (draft) => {
+  if (!draft.playoff) {
+    draft.playoff = {
+      semifinal1: emptyPlayoffMatch("semifinal1", "Semifinal 1"),
+      semifinal2: emptyPlayoffMatch("semifinal2", "Semifinal 2"),
+      final: emptyPlayoffMatch("final", "Final"),
+      championKey: "",
+    };
+  }
+
+  const sorted = sortStandings(draft.standings || []).slice(0, 4);
+  const semi1 = draft.playoff.semifinal1;
+  const semi2 = draft.playoff.semifinal2;
+  const finalMatch = draft.playoff.final;
+
+  if (!semi1.played && sorted[0] && sorted[3]) {
+    semi1.homeKey = sorted[0].key;
+    semi1.awayKey = sorted[3].key;
+    semi1.homeName = sorted[0].name;
+    semi1.awayName = sorted[3].name;
+  }
+
+  if (!semi2.played && sorted[1] && sorted[2]) {
+    semi2.homeKey = sorted[1].key;
+    semi2.awayKey = sorted[2].key;
+    semi2.homeName = sorted[1].name;
+    semi2.awayName = sorted[2].name;
+  }
+
+  if (semi1.winnerKey && semi2.winnerKey) {
+    finalMatch.homeKey = semi1.winnerKey;
+    finalMatch.awayKey = semi2.winnerKey;
+    finalMatch.homeName = getTeamNameByKey(draft, semi1.winnerKey);
+    finalMatch.awayName = getTeamNameByKey(draft, semi2.winnerKey);
+  }
+};
+
+const applySponsorIncome = (team, goalsFor, goalsAgainst, cards = 0) => {
+  if (!team?.sponsor?.values) return 0;
+
+  const values = team.sponsor.values;
+  let income = 0;
+
+  if (goalsFor > goalsAgainst) income += Number(values["Ingreso por ganar"] || 0);
+  else if (goalsFor === goalsAgainst) income += Number(values["Ingreso por empatar"] || 0);
+  else income += Number(values["Ingreso por perder"] || 0);
+
+  income += Number(values["Tarjetas"] || 0) * Number(cards || 0);
+  team.budget = Number(team.budget || 0) + income;
+  return income;
+};
+
+const resetLeagueForNewSeason = (draft, lobby) => {
+  draft.phase = "auction";
+  draft.auctionStage = 0;
+  draft.bids = [];
+  draft.bidCounts = {};
+  draft.offers = [];
+  draft.pendingSignings = [];
+  draft.negotiations = {};
+  draft.blockedNegotiations = {};
+  draft.transferWindowId = Number(draft.transferWindowId || 0) + 1;
+  draft.leagueMatchCount = 0;
+  draft.visibleRoundStart = 1;
+  draft.seasonWinnerAnnounced = false;
+  draft.playoff = null;
+  draft.standings = (draft.standings || []).map((team) => ({
+    ...team,
+    played: 0,
+    wins: 0,
+    draws: 0,
+    losses: 0,
+    gf: 0,
+    ga: 0,
+    pts: 0,
+  }));
+
+  if (lobby?.leagueType === "Fantasia") {
+    draft.schedule = (draft.schedule || []).map((roundMatches) =>
+      roundMatches.map((match) => ({
+        ...match,
+        played: false,
+        result: null,
+      }))
+    );
+  }
 };
 
 const buildFantasySchedule = (teamKeys = []) => {
@@ -1017,6 +1119,7 @@ const getDraftPayload = (code) => {
 
   syncStandingsWithTeams(draft, lobby);
   syncFantasySchedule(draft, lobby);
+  ensurePlayoff(draft);
   rebuildFantasyStandingsFromSchedule(draft, lobby);
   if (lobby?.leagueType === "Fantasia") {
     const simulatedMatches = maybeAdvanceFantasyRoundBlock(draft, lobby, code);
@@ -1051,6 +1154,7 @@ const getDraftPayload = (code) => {
     schedule: draft.schedule || [],
     cpuTeams: draft.cpuTeams || [],
     visibleRoundStart: getVisibleRoundStart(draft),
+    playoff: draft.playoff || null,
   };
 };
 
@@ -1120,6 +1224,7 @@ const ensureDraft = (code) => {
       }, {}),
       standings: [],
       schedule: [],
+      playoff: null,
       visibleRoundStart: 1,
       seasonWinnerAnnounced: false,
       news: [{ code, text: "Seleccion principal iniciada", createdAt: Date.now() }],
@@ -1369,6 +1474,8 @@ app.get("/drafts/:code", (req, res) => {
     return res.status(404).json({ error: "Draft no encontrado" });
   }
 
+  ensurePlayoff(draft);
+
   const payload = getDraftPayload(code);
   res.json(payload);
 
@@ -1385,6 +1492,8 @@ app.get("/drafts/:code/events", (req, res) => {
   if (!draft) {
     return res.status(404).end();
   }
+
+  ensurePlayoff(draft);
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -2170,6 +2279,11 @@ app.post("/drafts/:code/results", (req, res) => {
   );
 
   draft.leagueMatchCount = Number(draft.leagueMatchCount || 0) + 1;
+  const mySponsorIncome = applySponsorIncome(currentTeam, scoreA, scoreB, Number(teamCards) || 0);
+  const opponentManagedTeam = opponentTeam ? draft.teams[opponentTeam.owner] : null;
+  const opponentSponsorIncome = opponentManagedTeam
+    ? applySponsorIncome(opponentManagedTeam, scoreB, scoreA, Number(opponentCards) || 0)
+    : 0;
   syncUnavailablePlayers(draft);
   maybeTriggerRandomEvent(code, draft);
   addNews(draft, code, `Liga UFL: ${myTeamName} ${scoreA}-${scoreB} ${opponentName}`);
@@ -2189,6 +2303,10 @@ app.post("/drafts/:code/results", (req, res) => {
     addNews(draft, code, `Liga UFL: ${row.name} anoto ${row.goals} gol(es) para ${opponentName}`);
   });
   addNews(draft, code, `Liga UFL: tarjetas ${myTeamName} ${teamCards} - ${opponentCards} ${opponentName}`);
+  addNews(draft, code, `Liga UFL: patrocinador de ${myTeamName} ajusto ${formatMoney(mySponsorIncome)} tras el partido`);
+  if (opponentManagedTeam) {
+    addNews(draft, code, `Liga UFL: patrocinador de ${opponentName} ajusto ${formatMoney(opponentSponsorIncome)} tras el partido`);
+  }
 
   if (mvpPlayerName) {
     addNews(draft, code, `Liga UFL: jugador del partido ${mvpPlayerName}`);
@@ -2304,6 +2422,109 @@ app.post("/drafts/:code/cpu-team-name", (req, res) => {
   cpuTeam.name = trimmedName;
   syncStandingsWithTeams(draft, lobby);
   addNews(draft, code, `Liga UFL: el organizador renombro un equipo CPU a ${trimmedName}`);
+  sendDraftUpdate(code);
+  res.json(getDraftPayload(code));
+});
+
+app.post("/drafts/:code/edit-standing", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username, teamKey, played, wins, draws, losses, gf, ga, pts } = req.body;
+  const draft = ensureDraft(code);
+  const lobby = lobbies.get(code);
+
+  if (!draft || !lobby) {
+    return res.status(404).json({ error: "Draft no encontrado" });
+  }
+
+  if (lobby.creator !== username) {
+    return res.status(403).json({ error: "Solo el organizador puede editar la tabla" });
+  }
+
+  const standing = (draft.standings || []).find((team) => team.key === teamKey);
+  if (!standing) {
+    return res.status(404).json({ error: "Equipo no encontrado en la tabla" });
+  }
+
+  standing.played = Number(played) || 0;
+  standing.wins = Number(wins) || 0;
+  standing.draws = Number(draws) || 0;
+  standing.losses = Number(losses) || 0;
+  standing.gf = Number(gf) || 0;
+  standing.ga = Number(ga) || 0;
+  standing.pts = Number(pts) || 0;
+  draft.standings = sortStandings(draft.standings);
+  addNews(draft, code, `Liga UFL: el organizador edito la tabla de ${standing.name}`);
+  sendDraftUpdate(code);
+  res.json(getDraftPayload(code));
+});
+
+app.post("/drafts/:code/playoff-result", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username, stage, homeGoals, awayGoals } = req.body;
+  const draft = ensureDraft(code);
+  const lobby = lobbies.get(code);
+
+  if (!draft || !lobby) {
+    return res.status(404).json({ error: "Draft no encontrado" });
+  }
+
+  ensurePlayoff(draft);
+  const match = draft.playoff?.[stage];
+  if (!match || !match.homeKey || !match.awayKey) {
+    return res.status(400).json({ error: "No hay llave disponible para esta fase" });
+  }
+
+  const canManage =
+    lobby.creator === username ||
+    match.homeKey === username ||
+    match.awayKey === username;
+
+  if (!canManage) {
+    return res.status(403).json({ error: "No puedes registrar este resultado" });
+  }
+
+  const goalsA = Number(homeGoals);
+  const goalsB = Number(awayGoals);
+  if (!Number.isFinite(goalsA) || !Number.isFinite(goalsB) || goalsA === goalsB) {
+    return res.status(400).json({ error: "La liguilla no permite empates" });
+  }
+
+  match.played = true;
+  match.result = { homeGoals: goalsA, awayGoals: goalsB };
+  match.winnerKey = goalsA > goalsB ? match.homeKey : match.awayKey;
+  ensurePlayoff(draft);
+
+  if (stage === "final") {
+    draft.playoff.championKey = match.winnerKey;
+    addNews(draft, code, `Liga UFL: ${getTeamNameByKey(draft, match.winnerKey)} gano la liguilla`);
+  } else {
+    addNews(
+      draft,
+      code,
+      `Liga UFL: ${goalsA > goalsB ? match.homeName : match.awayName} avanzo desde ${match.label.toLowerCase()}`
+    );
+  }
+
+  sendDraftUpdate(code);
+  res.json(getDraftPayload(code));
+});
+
+app.post("/drafts/:code/finish-playoff", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username } = req.body;
+  const draft = ensureDraft(code);
+  const lobby = lobbies.get(code);
+
+  if (!draft || !lobby) {
+    return res.status(404).json({ error: "Draft no encontrado" });
+  }
+
+  if (lobby.creator !== username) {
+    return res.status(403).json({ error: "Solo el organizador puede cerrar la liguilla" });
+  }
+
+  resetLeagueForNewSeason(draft, lobby);
+  addNews(draft, code, "Liga UFL: termino la liguilla y se reinicio el sistema de subastas y transferencias");
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });
