@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.710";
+const SERVER_VERSION = "v0.711";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -307,19 +307,100 @@ const addNews = (draft, code, text) => {
   draft.news.unshift({ code, text, createdAt: Date.now() });
 };
 
-const addFaunaComment = (draft, code, type, context = {}) => {
+const pickRandom = (items = []) => items[Math.floor(Math.random() * items.length)] || "";
+
+const addRomanoComment = (draft, code, type, context = {}) => {
+  const subject = context.subject || context.player || context.team || context.winner || "el movimiento";
+  const target = context.loser || context.rival || context.fromClub || "el rival";
+  const amount = context.amount ? `${context.amount}M` : "una cifra seria";
   const commentsByType = {
     result: [
-      `Fabritzio Fauna: ${context.winner || "Ese club"} dio un baile y el rival va a sonar con ese marcador.`,
-      `Fabritzio Fauna: Partido terminado y hubo un club que mejor ni revise el grupo de WhatsApp.`,
+      `Fabrizio Romano: ${subject} dejo sensaciones muy serias. El rival ${target} tendra que responder en la siguiente jornada.`,
+      `Fabrizio Romano: Resultado confirmado, ${subject} golpeo en el momento justo y ${target} se va con preguntas.`,
+      `Fabrizio Romano: Ojo con ${subject}, hoy mando un mensaje fuerte a toda la liga.`,
+      `Fabrizio Romano: Partido cerrado. ${subject} saco ventaja real y la tabla ya lo siente.`,
     ],
     transfer: [
-      `Fabritzio Fauna: Movimiento picante, esto huele a drama de vestidor y presupuesto temblando.`,
-      `Fabritzio Fauna: Fichaje cerrado y mas de uno ya esta rezando para que no salga mal.`,
+      `Fabrizio Romano: ${subject} mueve el mercado y la operacion ya genera ruido en varios clubes.`,
+      `Fabrizio Romano: ${subject} entra en el foco, acuerdo importante por ${amount}.`,
+      `Fabrizio Romano: Negocio serio en la liga. ${subject} cambia el panorama del mercado.`,
+      `Fabrizio Romano: Lo de ${subject} ya repercute en toda la liga, y apenas empieza el ruido.`,
     ],
     clause: [
-      `Fabritzio Fauna: HACHAZO total. ${context.player || "Ese jugador"} salio volando y en el otro club quedaron viendo al techo.`,
+      `Fabrizio Romano: Clausula ejecutada por ${subject}. El club golpeado fue ${target} y el mercado no para.`,
+      `Fabrizio Romano: ${subject} salio por clausula y esto deja a ${target} contra las cuerdas.`,
+      `Fabrizio Romano: Movimiento relampago con clausula. ${subject} cambia de destino y deja huella.`,
+      `Fabrizio Romano: Clausula confirmada. ${subject} ya tiene nuevo rumbo y ${target} perdio una pieza clave.`,
+    ],
+  };
+
+  addNews(draft, code, pickRandom(commentsByType[type] || commentsByType.transfer));
+};
+
+const addLeagueComment = (draft, code, type, context = {}) => {
+  const home = context.home || context.team || context.winner || "Un club";
+  const away = context.away || context.rival || context.loser || "otro club";
+  const player = context.player || "un jugador";
+  const commentsByType = {
+    result: [
+      `Liga UFL: la jornada sigue caliente. ${home} y ${away} dejaron movimiento en la tabla.`,
+      `Liga UFL: se movieron posiciones tras el duelo entre ${home} y ${away}.`,
+      `Liga UFL: otro resultado oficial registrado. ${home} y ${away} ya modifican la pelea por puestos.`,
+      `Liga UFL: la tabla aprieta. ${home} y ${away} dejaron consecuencias directas en la clasificacion.`,
+    ],
+    training: [
+      `Liga UFL: ${player} termino una mejora individual y su club espera impacto inmediato.`,
+      `Liga UFL: sesion completada para ${player}. El desarrollo del plantel sigue avanzando.`,
+      `Liga UFL: ${player} elevo su nivel dentro de esta liga y ya hay reacciones en los rivales.`,
+      `Liga UFL: entrenamiento confirmado para ${player}. El club apuesta fuerte por su crecimiento.`,
+    ],
+    transfer: [
+      `Liga UFL: el mercado vuelve a moverse y varios clubes ya revisan sus cuentas.`,
+      `Liga UFL: nueva operacion registrada. El equilibrio del mercado sigue cambiando.`,
+      `Liga UFL: otro movimiento oficial en la liga. Nadie quiere quedarse atras.`,
+      `Liga UFL: la ventana de transferencias sigue activa y los despachos no descansan.`,
+    ],
+  };
+
+  addNews(draft, code, pickRandom(commentsByType[type] || commentsByType.transfer));
+};
+
+const addFaunaComment = (draft, code, type, context = {}) => {
+  const winner = context.winner || "Ese club";
+  const loser = context.loser || context.rival || "el rival";
+  const player = context.player || "ese jugador";
+  const commentsByType = {
+    result: [
+      `Fabritzio Fauna: ${winner} le pego un baile sabroso a ${loser}. Que no revisen menciones por unas horas.`,
+      `Fabritzio Fauna: Partido terminado y ${loser} quedo con cara de que se le apago el wifi del cerebro.`,
+      `Fabritzio Fauna: ${winner} salio a jugar futbol y ${loser} salio a estorbar. Dura pero justa.`,
+      `Fabritzio Fauna: Lo de ${loser} fue una falta de respeto al balon. ${winner} apenas sudo.`,
+      `Fabritzio Fauna: ${winner} paso por encima y ${loser} mejor que eche la culpa al pasto.`,
+      `Fabritzio Fauna: Marcador oficial y ${loser} queda retratado. Que noche tan tiesa.`,
+      `Fabritzio Fauna: ${winner} repartio cachetadas futbolisticas y ${loser} ni metio las manos.`,
+      `Fabritzio Fauna: Si ${loser} queria competir tenia que avisar. ${winner} lo paseo sin pedir permiso.`,
+      `Fabritzio Fauna: Resultado firmado. ${loser} defendio como puerta de cantina y asi le fue.`,
+      `Fabritzio Fauna: ${winner} jugo serio y ${loser} hizo cosplay de cono.`,
+    ],
+    transfer: [
+      `Fabritzio Fauna: Movimiento picante. En un club celebran y en otro andan contando monedas con lagrimas.`,
+      `Fabritzio Fauna: Fichaje cerrado y mas de uno ya esta rezando para que no salga mal, porque pinta a novela.`,
+      `Fabritzio Fauna: ${player} cambio de aire y en el club que lo perdio quedaron mascando coraje.`,
+      `Fabritzio Fauna: Mercado encendido. Hay directivos negociando como cracks y otros como si compraran a ciegas.`,
+      `Fabritzio Fauna: Operacion hecha. Si sale mal, al que firmo esto lo van a querer esconder debajo del escritorio.`,
+      `Fabritzio Fauna: ${player} ya tiene nuevo techo. El exclub se quedo viendo como se le iba el tren.`,
+      `Fabritzio Fauna: Este fichaje trae humo, drama y egos heridos. Justo como nos gusta.`,
+      `Fabritzio Fauna: Movimiento oficial. Unos trabajan el mercado y otros nomas hacen fila para el ridiculo.`,
+    ],
+    clause: [
+      `Fabritzio Fauna: HACHAZO total. ${player} salio volando y en el otro club quedaron viendo al techo.`,
       `Fabritzio Fauna: HACHAZO en toda regla. La caja registradora sono y el vestidor rival quedo helado.`,
+      `Fabritzio Fauna: Clausulazo brutal. Se llevaron a ${player} y al exclub le dejaron puro eco en el vestidor.`,
+      `Fabritzio Fauna: Le arrancaron a ${player} de las manos. Eso no fue mercado, fue atraco con recibo.`,
+      `Fabritzio Fauna: ${player} se fue por clausula y al otro lado quedaron mas dolidos que dignos.`,
+      `Fabritzio Fauna: Le metieron la mano al club rival y ni tiempo les dio de hacerse los ofendidos.`,
+      `Fabritzio Fauna: ${player} cambio de escudo por clausula. El otro club hizo berrinche, pero tarde.`,
+      `Fabritzio Fauna: Se escucho el HACHAZO desde la otra conferencia. Vaya manera de quitarles a ${player}.`,
     ],
   };
 
@@ -1727,6 +1808,7 @@ app.post("/drafts/:code/train", (req, res) => {
     });
   }
   addNews(draft, code, `Liga UFL: ${team.name} mejoro a ${player.Name} a ${nextOverall} de media`);
+  addLeagueComment(draft, code, "training", { player: player.Name, team: team.name });
   sendDraftUpdate(code);
   res.json({ playerName: player.Name, nextOverall, ...getDraftPayload(code) });
 });
@@ -1793,6 +1875,7 @@ app.post("/drafts/:code/offers", (req, res) => {
     status: "pending",
   });
   addNews(draft, code, `Fabrizio Romano: ${from} envio oferta por ${player.Name}`);
+  addRomanoComment(draft, code, "transfer", { player: player.Name, amount: Number(amount), team: from, fromClub: seller.name });
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });
@@ -1849,6 +1932,7 @@ app.post("/drafts/:code/pay-clause", (req, res) => {
     heldAmount: clauseAmount,
   });
   addNews(draft, code, `Fabrizio Romano: ${buyer.name} activo la clausula de ${player.Name} por ${clauseAmount}M`);
+  addRomanoComment(draft, code, "clause", { player: player.Name, winner: buyer.name, loser: seller.name, amount: clauseAmount });
   addFaunaComment(draft, code, "clause", { player: player.Name, winner: buyer.name });
   sendDraftUpdate(code);
   res.json({ mode: "clause", ...getDraftPayload(code) });
@@ -1930,6 +2014,7 @@ app.post("/drafts/:code/offers/:offerId", (req, res) => {
     }
 
     addNews(draft, code, `Fabrizio Romano: ${seller.name} acepto la oferta de ${buyer.name} por ${offer.player.Name}. Falta negociar el sueldo del jugador.`);
+    addLeagueComment(draft, code, "transfer", { player: offer.player.Name, team: buyer.name });
     buyer.budget -= offer.amount;
     draft.pendingSignings.unshift({
       id: `offer-${offer.player.ID}-${Date.now()}-${offer.from}`,
@@ -2046,8 +2131,13 @@ app.post("/drafts/:code/results", (req, res) => {
   syncUnavailablePlayers(draft);
   maybeTriggerRandomEvent(code, draft);
   addNews(draft, code, `Liga UFL: ${myTeamName} ${scoreA}-${scoreB} ${opponentName}`);
+  addLeagueComment(draft, code, "result", { home: myTeamName, away: opponentName, winner: scoreA > scoreB ? myTeamName : opponentName, loser: scoreA > scoreB ? opponentName : myTeamName });
+  addRomanoComment(draft, code, "result", { subject: scoreA > scoreB ? myTeamName : opponentName, rival: scoreA > scoreB ? opponentName : myTeamName });
   if (scoreA !== scoreB) {
-    addFaunaComment(draft, code, "result", { winner: scoreA > scoreB ? myTeamName : opponentName });
+    addFaunaComment(draft, code, "result", {
+      winner: scoreA > scoreB ? myTeamName : opponentName,
+      loser: scoreA > scoreB ? opponentName : myTeamName,
+    });
   }
 
   teamScorers.forEach((row) => {

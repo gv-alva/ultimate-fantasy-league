@@ -235,6 +235,16 @@ const sponsorCategories = [
   "Tarjetas",
 ];
 
+type AppliedSearch = {
+  query: string;
+  minValue: string;
+  maxValue: string;
+  minOverall: string;
+  maxOverall: string;
+  position: string;
+  nonce: number;
+};
+
 const generatedClubNames = [
   "Atlético Prisma",
   "Racing Aurora",
@@ -580,7 +590,16 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [searchMinOverall, setSearchMinOverall] = useState("1");
   const [searchMaxOverall, setSearchMaxOverall] = useState("99");
   const [searchPosition, setSearchPosition] = useState("all");
-  const [searchNonce, setSearchNonce] = useState(0);
+  const [showFilters, setShowFilters] = useState(false);
+  const [appliedSearch, setAppliedSearch] = useState<AppliedSearch>({
+    query: "",
+    minValue: "0",
+    maxValue: "999",
+    minOverall: "1",
+    maxOverall: "99",
+    position: "all",
+    nonce: 0,
+  });
   const [results, setResults] = useState<Player[]>([]);
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [initialPicks, setInitialPicks] = useState<Record<string, Record<PositionGroup, Player[]>>>({});
@@ -774,7 +793,16 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setTeams((currentTeams) => decorateTeams(currentTeams, players, settings.money, settings.salaryCap));
   }, [pool, players, settings.money, settings.salaryCap, leagueCode]);
 
-  const runPlayerSearch = () => setSearchNonce((current) => current + 1);
+  const runPlayerSearch = (queryOverride?: string) =>
+    setAppliedSearch({
+      query: typeof queryOverride === "string" ? queryOverride : search.trim(),
+      minValue: searchMinValue || "0",
+      maxValue: searchMaxValue || "999",
+      minOverall: searchMinOverall || "1",
+      maxOverall: searchMaxOverall || "99",
+      position: searchPosition,
+      nonce: Date.now(),
+    });
 
   useEffect(() => {
     const leagueSize = settings.format === "Pequena" ? 8 : settings.format === "Corta" ? 10 : 20;
@@ -782,13 +810,13 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     const halfSeasonMatch = Math.floor(totalMatches / 2);
     const windowOpen = phase === "market" || leagueMatchCount === 0 || leagueMatchCount === halfSeasonMatch;
 
-    if (!windowOpen || searchNonce === 0) {
+    if (!windowOpen || appliedSearch.nonce === 0) {
       setResults([]);
       return;
     }
 
     const controller = new AbortController();
-    fetch(`${API_URL}/drafts/${leagueCode}/players?search=${encodeURIComponent(search.trim())}&limit=80`, {
+    fetch(`${API_URL}/drafts/${leagueCode}/players?search=${encodeURIComponent(appliedSearch.query)}&limit=5000`, {
       signal: controller.signal,
     })
       .then((res) => res.json())
@@ -801,11 +829,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         setResults(
           (data.players || []).filter((player: Player) => {
             if (ownerMap.get(player.ID) === currentUser) return false;
-            if (searchPosition !== "all" && getPlayerGroup(player.Position) !== searchPosition) return false;
-            if (Number(player.OVR) < Number(searchMinOverall || 1)) return false;
-            if (Number(player.OVR) > Number(searchMaxOverall || 99)) return false;
-            if (Number(player.marketValue) < Number(searchMinValue || 0)) return false;
-            if (Number(player.marketValue) > Number(searchMaxValue || 999)) return false;
+            if (appliedSearch.position !== "all" && getPlayerGroup(player.Position) !== appliedSearch.position) return false;
+            if (Number(player.OVR) < Number(appliedSearch.minOverall || 1)) return false;
+            if (Number(player.OVR) > Number(appliedSearch.maxOverall || 99)) return false;
+            if (Number(player.marketValue) < Number(appliedSearch.minValue || 0)) return false;
+            if (Number(player.marketValue) > Number(appliedSearch.maxValue || 999)) return false;
             return true;
           })
         );
@@ -813,7 +841,30 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       .catch(() => setResults([]));
 
     return () => controller.abort();
-  }, [searchNonce, search, phase, teams, currentUser, leagueMatchCount, settings.format, leagueCode, searchMinValue, searchMaxValue, searchMinOverall, searchMaxOverall, searchPosition]);
+  }, [appliedSearch, phase, teams, currentUser, leagueMatchCount, settings.format, leagueCode]);
+
+  useEffect(() => {
+    const leagueSize = settings.format === "Pequena" ? 8 : settings.format === "Corta" ? 10 : 20;
+    const totalMatches = leagueSize * 2;
+    const halfSeasonMatch = Math.floor(totalMatches / 2);
+    const windowOpen = phase === "market" || leagueMatchCount === 0 || leagueMatchCount === halfSeasonMatch;
+    const trimmedSearch = search.trim();
+
+    if (!windowOpen) {
+      setResults([]);
+      return;
+    }
+
+    if (!trimmedSearch) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      runPlayerSearch(trimmedSearch);
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [search, phase, leagueMatchCount, settings.format]);
 
   useEffect(() => {
     if (pool.length === 0 || auctionOptions.length > 0) return;
@@ -2149,57 +2200,67 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
-          <div className="transfer-filters">
-            <select className="input" value={searchPosition} onChange={(event) => setSearchPosition(event.target.value)}>
-              <option value="all">Todas las posiciones</option>
-              <option value="POR">Porteros</option>
-              <option value="DEF">Defensas</option>
-              <option value="MED">Mediocampo</option>
-              <option value="EXT">Extremos</option>
-              <option value="DEL">Delanteros</option>
-            </select>
-            <div className="range-filter">
-              <input
-                className="input"
-                value={searchMinOverall}
-                onChange={(event) => setSearchMinOverall(event.target.value)}
-                inputMode="numeric"
-                placeholder="1"
-              />
-              <span>a</span>
-              <input
-                className="input"
-                value={searchMaxOverall}
-                onChange={(event) => setSearchMaxOverall(event.target.value)}
-                inputMode="numeric"
-                placeholder="99"
-              />
-              <small>GLB</small>
-            </div>
-            <div className="range-filter">
-              <input
-                className="input"
-                value={searchMinValue}
-                onChange={(event) => setSearchMinValue(event.target.value)}
-                inputMode="decimal"
-                placeholder="0"
-              />
-              <span>a</span>
-              <input
-                className="input"
-                value={searchMaxValue}
-                onChange={(event) => setSearchMaxValue(event.target.value)}
-                inputMode="decimal"
-                placeholder="999"
-              />
-              <small>M</small>
-            </div>
+          <div className="transfer-search-actions">
+            <button
+              className={`small-action ${showFilters ? "active-filter-toggle" : ""}`}
+              onClick={() => setShowFilters((current) => !current)}
+            >
+              FILTROS
+            </button>
+            <button className="btn btn-login compact-btn" onClick={() => runPlayerSearch()}>
+              BUSCAR
+            </button>
           </div>
-          <button className="btn btn-login compact-btn" onClick={runPlayerSearch}>
-            BUSCAR
-          </button>
+          {showFilters && (
+            <div className="transfer-filters">
+              <select className="input" value={searchPosition} onChange={(event) => setSearchPosition(event.target.value)}>
+                <option value="all">Todas las posiciones</option>
+                <option value="POR">Porteros</option>
+                <option value="DEF">Defensas</option>
+                <option value="MED">Mediocampo</option>
+                <option value="EXT">Extremos</option>
+                <option value="DEL">Delanteros</option>
+              </select>
+              <div className="range-filter">
+                <input
+                  className="input"
+                  value={searchMinOverall}
+                  onChange={(event) => setSearchMinOverall(event.target.value)}
+                  inputMode="numeric"
+                  placeholder="1"
+                />
+                <span>a</span>
+                <input
+                  className="input"
+                  value={searchMaxOverall}
+                  onChange={(event) => setSearchMaxOverall(event.target.value)}
+                  inputMode="numeric"
+                  placeholder="99"
+                />
+                <small>GLB</small>
+              </div>
+              <div className="range-filter">
+                <input
+                  className="input"
+                  value={searchMinValue}
+                  onChange={(event) => setSearchMinValue(event.target.value)}
+                  inputMode="decimal"
+                  placeholder="0"
+                />
+                <span>a</span>
+                <input
+                  className="input"
+                  value={searchMaxValue}
+                  onChange={(event) => setSearchMaxValue(event.target.value)}
+                  inputMode="decimal"
+                  placeholder="999"
+                />
+                <small>M</small>
+              </div>
+            </div>
+          )}
           <div className="card-grid">
-            {searchNonce === 0 && <div className="draft-empty-state">Busca por nombre o usa filtros y pulsa buscar.</div>}
+            {appliedSearch.nonce === 0 && <div className="draft-empty-state">Busca por nombre o abre filtros y pulsa buscar.</div>}
             {results.map((player) => {
               const owner = playerOwners.get(player.ID);
               const isOwnedByOther = owner && owner !== currentUser;
