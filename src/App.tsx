@@ -4,7 +4,7 @@ import Draft from "./Draft";
 import Lobby from "./Lobby";
 import logo from "./assets/logo.png";
 
-const APP_VERSION = "0.714";
+const APP_VERSION = "0.800";
 
 type LobbyData = {
   code: string;
@@ -19,6 +19,11 @@ type LobbyData = {
   champions?: boolean;
   fillCpuTeams?: boolean;
   randomEvents?: boolean;
+  leaguePrize?: number;
+  playoffPrize1?: number;
+  playoffPrize2?: number;
+  playoffPrize3?: number;
+  playoffPrize4?: number;
   players: string[];
   status?: "waiting" | "started";
   deleted?: boolean;
@@ -32,6 +37,11 @@ type LeagueSettings = {
   champions: boolean;
   fillCpuTeams: boolean;
   randomEvents: boolean;
+  leaguePrize: number;
+  playoffPrize1: number;
+  playoffPrize2: number;
+  playoffPrize3: number;
+  playoffPrize4: number;
 };
 
 type SavedLeague = {
@@ -59,6 +69,11 @@ const getLeagueSettings = (
   champions: lobby.champions ?? fallback.champions,
   fillCpuTeams: lobby.fillCpuTeams ?? fallback.fillCpuTeams,
   randomEvents: lobby.randomEvents ?? fallback.randomEvents,
+  leaguePrize: lobby.leaguePrize || fallback.leaguePrize,
+  playoffPrize1: lobby.playoffPrize1 || fallback.playoffPrize1,
+  playoffPrize2: lobby.playoffPrize2 || fallback.playoffPrize2,
+  playoffPrize3: lobby.playoffPrize3 || fallback.playoffPrize3,
+  playoffPrize4: lobby.playoffPrize4 || fallback.playoffPrize4,
 });
 
 const getSavedLeaguesKey = (user: string) => `ufl-saved-leagues:${user}`;
@@ -80,6 +95,11 @@ export default function App() {
   const [leagueType, setLeagueType] = useState("Real");
   const [money, setMoney] = useState(100);
   const [salaryCap, setSalaryCap] = useState(1800);
+  const [leaguePrize, setLeaguePrize] = useState(8);
+  const [playoffPrize1, setPlayoffPrize1] = useState(18);
+  const [playoffPrize2, setPlayoffPrize2] = useState(10);
+  const [playoffPrize3, setPlayoffPrize3] = useState(6);
+  const [playoffPrize4, setPlayoffPrize4] = useState(3);
 
   // lobby
   const [leagueCode, setLeagueCode] = useState("");
@@ -97,6 +117,11 @@ export default function App() {
     champions: false,
     fillCpuTeams: true,
     randomEvents: true,
+    leaguePrize: 8,
+    playoffPrize1: 18,
+    playoffPrize2: 10,
+    playoffPrize3: 6,
+    playoffPrize4: 3,
   });
 
   const persistLeague = (league: SavedLeague) => {
@@ -281,6 +306,11 @@ export default function App() {
         champions: false,
         fillCpuTeams: true,
         randomEvents: true,
+        leaguePrize: 8,
+        playoffPrize1: 18,
+        playoffPrize2: 10,
+        playoffPrize3: 6,
+        playoffPrize4: 3,
       });
     setScreen("login");
   };
@@ -302,6 +332,11 @@ export default function App() {
       champions,
       fillCpuTeams,
       randomEvents,
+      leaguePrize,
+      playoffPrize1,
+      playoffPrize2,
+      playoffPrize3,
+      playoffPrize4,
     };
 
     let res: Response;
@@ -322,6 +357,11 @@ export default function App() {
           leagueType,
           money,
           salaryCap,
+          leaguePrize,
+          playoffPrize1,
+          playoffPrize2,
+          playoffPrize3,
+          playoffPrize4,
         }),
       });
     } catch (error) {
@@ -733,6 +773,83 @@ export default function App() {
                 <option value={3200}>3.2M por temporada</option>
               </select>
             </label>
+
+            <label className="field">
+              <span>Premio por liga</span>
+              <select
+                className="input"
+                value={leaguePrize}
+                onChange={(e) => setLeaguePrize(Number(e.target.value))}
+              >
+                <option value={4}>4M para cada club real</option>
+                <option value={6}>6M para cada club real</option>
+                <option value={8}>8M para cada club real</option>
+                <option value={10}>10M para cada club real</option>
+                <option value={12}>12M para cada club real</option>
+              </select>
+            </label>
+
+            <div className="field">
+              <span>Premios de liguilla</span>
+              <div className="field-grid">
+                <label className="field">
+                  <span>1er lugar</span>
+                  <select
+                    className="input"
+                    value={playoffPrize1}
+                    onChange={(e) => setPlayoffPrize1(Number(e.target.value))}
+                  >
+                    <option value={12}>12M</option>
+                    <option value={15}>15M</option>
+                    <option value={18}>18M</option>
+                    <option value={20}>20M</option>
+                    <option value={25}>25M</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span>2do lugar</span>
+                  <select
+                    className="input"
+                    value={playoffPrize2}
+                    onChange={(e) => setPlayoffPrize2(Number(e.target.value))}
+                  >
+                    <option value={6}>6M</option>
+                    <option value={8}>8M</option>
+                    <option value={10}>10M</option>
+                    <option value={12}>12M</option>
+                    <option value={15}>15M</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span>3er lugar</span>
+                  <select
+                    className="input"
+                    value={playoffPrize3}
+                    onChange={(e) => setPlayoffPrize3(Number(e.target.value))}
+                  >
+                    <option value={3}>3M</option>
+                    <option value={5}>5M</option>
+                    <option value={6}>6M</option>
+                    <option value={8}>8M</option>
+                    <option value={10}>10M</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span>4to lugar</span>
+                  <select
+                    className="input"
+                    value={playoffPrize4}
+                    onChange={(e) => setPlayoffPrize4(Number(e.target.value))}
+                  >
+                    <option value={1}>1M</option>
+                    <option value={2}>2M</option>
+                    <option value={3}>3M</option>
+                    <option value={4}>4M</option>
+                    <option value={5}>5M</option>
+                  </select>
+                </label>
+              </div>
+            </div>
 
             <div className="stack-actions">
               <button className="btn btn-login" onClick={createLeague}>

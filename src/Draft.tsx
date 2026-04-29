@@ -112,6 +112,11 @@ type LeagueSettings = {
   champions: boolean;
   fillCpuTeams: boolean;
   randomEvents?: boolean;
+  leaguePrize: number;
+  playoffPrize1: number;
+  playoffPrize2: number;
+  playoffPrize3: number;
+  playoffPrize4: number;
 };
 
 type InboxItem = {
@@ -213,6 +218,7 @@ type QuickTournamentState = {
   active: boolean;
   rounds: QuickTournamentRound[];
   championKey?: string;
+  prize?: number;
 };
 
 const tabs: Tab[] = ["Inicio", "Club", "Liga", "Transferencia"];
@@ -710,6 +716,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [quickTournament, setQuickTournament] = useState<QuickTournamentState | null>(null);
   const [showQuickTournamentForm, setShowQuickTournamentForm] = useState(false);
   const [selectedQuickTeams, setSelectedQuickTeams] = useState<string[]>([]);
+  const [quickTournamentPrize, setQuickTournamentPrize] = useState("6");
   const [editStandingKey, setEditStandingKey] = useState("");
   const [editPlayed, setEditPlayed] = useState("0");
   const [editWins, setEditWins] = useState("0");
@@ -803,6 +810,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setQuickTournament(null);
     setShowQuickTournamentForm(false);
     setSelectedQuickTeams([]);
+    setQuickTournamentPrize("6");
   }, [leagueCode]);
 
   useEffect(() => {
@@ -1933,6 +1941,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       body: JSON.stringify({
         username: currentUser,
         teamKeys: selectedQuickTeams,
+        prize: Number(quickTournamentPrize) || 0,
       }),
     });
 
@@ -1947,6 +1956,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       applyDraftPayload(payload);
     }
     setShowQuickTournamentForm(false);
+    setQuickTournamentPrize("6");
   };
 
   const submitQuickTournamentResult = async (roundIndex: number, matchId: string, homeName: string, awayName: string) => {
@@ -2223,6 +2233,14 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const renderTable = () => (
     <section className="draft-panel">
       <h2>Liga</h2>
+      <div className="draft-list-item">
+        <strong>Premios de temporada</strong>
+        <p>Liga: {money(settings.leaguePrize || 0)} para cada club real</p>
+        <small>
+          Liguilla: 1ro {money(settings.playoffPrize1 || 0)} | 2do {money(settings.playoffPrize2 || 0)} | 3ro{" "}
+          {money(settings.playoffPrize3 || 0)} | 4to {money(settings.playoffPrize4 || 0)}
+        </small>
+      </div>
       <div className="table-actions">
         <button
           className={`btn ${tableView === "tabla" ? "btn-login" : "btn-outline"} compact-btn`}
@@ -2389,6 +2407,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                 <div className="draft-list-item">
                   <strong>Crear torneo rapido</strong>
                   <p>Selecciona clubes reales, el orden sera aleatorio y se rellenara con CPU si hace falta.</p>
+                  <small>Premio al campeon: {money(Number(quickTournamentPrize) || 0)}</small>
                 </div>
                 <button className="btn btn-login compact-btn" onClick={() => setShowQuickTournamentForm(true)}>
                   CREAR TORNEO RAPIDO
@@ -2399,6 +2418,10 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
             )
           ) : (
             <>
+              <div className="draft-list-item">
+                <strong>Bolsa del torneo rapido</strong>
+                <p>{money(Number(quickTournament.prize || 0))} para el campeon</p>
+              </div>
               {quickTournament.rounds.map((round, roundIndex) => (
                 <div key={`quick-round-${round.name}`} className="draft-list-item current-round">
                   <strong>{round.name}</strong>
@@ -2979,6 +3002,21 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
           <div className="player-modal-card" onClick={(event) => event.stopPropagation()}>
             <button className="modal-close" onClick={() => setShowQuickTournamentForm(false)}>Cerrar</button>
             <h2>Crear torneo rapido</h2>
+            <label className="field">
+              <span>Premio del torneo</span>
+              <select
+                className="input"
+                value={quickTournamentPrize}
+                onChange={(event) => setQuickTournamentPrize(event.target.value)}
+              >
+                <option value="2">2M</option>
+                <option value="4">4M</option>
+                <option value="6">6M</option>
+                <option value="8">8M</option>
+                <option value="10">10M</option>
+                <option value="12">12M</option>
+              </select>
+            </label>
             <div className="offers-panel">
               {realLeagueClubs.map((team) => (
                 <article key={`quick-team-${team.key}`} className="offer-card">

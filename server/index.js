@@ -15,11 +15,19 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.715";
+const SERVER_VERSION = "v0.800";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
 const RANDOM_EVENT_PROBABILITY = 0.2;
+const DEFAULT_LEAGUE_PRIZE = 8;
+const DEFAULT_PLAYOFF_PRIZES = {
+  first: 18,
+  second: 10,
+  third: 6,
+  fourth: 3,
+};
+const DEFAULT_QUICK_TOURNAMENT_PRIZE = 6;
 
 const randomEventTemplates = [
   "se fue de fiesta antes del partido",
@@ -246,6 +254,14 @@ const getTeamPayroll = (team) =>
   team.squad.reduce((sum, player) => sum + (Number(player.salary) || 0), 0);
 
 const formatMoney = (value) => `${Math.round(Number(value || 0) * 10) / 10}M`;
+
+const getLobbyPrizeConfig = (lobby = {}) => ({
+  leaguePrize: Number(lobby.leaguePrize) || DEFAULT_LEAGUE_PRIZE,
+  playoffPrize1: Number(lobby.playoffPrize1) || DEFAULT_PLAYOFF_PRIZES.first,
+  playoffPrize2: Number(lobby.playoffPrize2) || DEFAULT_PLAYOFF_PRIZES.second,
+  playoffPrize3: Number(lobby.playoffPrize3) || DEFAULT_PLAYOFF_PRIZES.third,
+  playoffPrize4: Number(lobby.playoffPrize4) || DEFAULT_PLAYOFF_PRIZES.fourth,
+});
 
 const getReleaseClauseValue = (player) => Math.round((Number(player.marketValue || 0) * 2) * 10) / 10;
 
@@ -534,14 +550,85 @@ const syncStandingsWithTeams = (draft, lobby) => {
   );
 };
 
-const appendSeasonWinnerIfNeeded = (draft, code) => {
+const awardLeaguePrizeIfNeeded = (draft, lobby, code) => {
+  if (!draft?.standings?.length || draft.seasonLeaguePrizePaid) return;
+
+  const { leaguePrize } = getLobbyPrizeConfig(lobby);
+  const realTeams = sortStandings(draft.standings).filter((team) => team.real);
+  if (leaguePrize <= 0 || realTeams.length === 0) {
+    draft.seasonLeaguePrizePaid = true;
+    return;
+  }
+
+  realTeams.forEach((standing) => {
+    const team = draft.teams[standing.key];
+    if (team) {
+      team.budget = Number(team.budget || 0) + leaguePrize;
+    }
+  });
+
+  draft.seasonLeaguePrizePaid = true;
+  addNews(draft, code, `Liga UFL: se repartieron ${formatMoney(leaguePrize)} por club real como premio base de liga`);
+};
+
+const appendSeasonWinnerIfNeeded = (draft, lobby, code) => {
   if (!draft?.standings?.length || draft.seasonWinnerAnnounced) return;
 
   const winner = sortStandings(draft.standings)[0];
   if (!winner) return;
 
   draft.seasonWinnerAnnounced = true;
+  awardLeaguePrizeIfNeeded(draft, lobby, code);
   addNews(draft, code, `Liga UFL: ${winner.name} es campeon de la temporada`);
+};
+
+const awardPlayoffPrizesIfNeeded = (draft, lobby, code) => {
+  if (!draft?.playoff?.championKey || draft.playoffPrizePaid) return;
+
+  const { playoffPrize1, playoffPrize2, playoffPrize3, playoffPrize4 } = getLobbyPrizeConfig(lobby);
+  const finalMatch = draft.playoff.final;
+  const championKey = draft.playoff.championKey;
+  const runnerUpKey =
+    finalMatch.homeKey === championKey ? finalMatch.awayKey : finalMatch.homeKey;
+  const semifinalLosers = [draft.playoff.semifinal1, draft.playoff.semifinal2]
+    .map((match) => (match.homeKey === match.winnerKey ? match.awayKey : match.homeKey))
+    .filter(Boolean);
+  const standingOrder = sortStandings(draft.standings || []).map((team) => team.key);
+  semifinalLosers.sort(
+    (leftKey, rightKey) => standingOrder.indexOf(leftKey) - standingOrder.indexOf(rightKey)
+  );
+
+  const rewards = [
+    { key: championKey, amount: playoffPrize1, label: "campeon de liguilla" },
+    { key: runnerUpKey, amount: playoffPrize2, label: "subcampeon de liguilla" },
+    { key: semifinalLosers[0], amount: playoffPrize3, label: "tercer lugar de liguilla" },
+    { key: semifinalLosers[1], amount: playoffPrize4, label: "cuarto lugar de liguilla" },
+  ];
+
+  rewards.forEach(({ key, amount, label }) => {
+    if (!key || amount <= 0) return;
+    const team = draft.teams[key];
+    const teamName = getTeamNameByKey(draft, key);
+    if (team) {
+      team.budget = Number(team.budget || 0) + amount;
+    }
+    addNews(draft, code, `Liga UFL: ${teamName} cobro ${formatMoney(amount)} por ${label}`);
+  });
+
+  draft.playoffPrizePaid = true;
+};
+
+const awardQuickTournamentPrizeIfNeeded = (draft, code) => {
+  if (!draft?.quickTournament?.championKey || draft.quickTournament.prizePaid) return;
+
+  const amount = Number(draft.quickTournament.prize || 0);
+  const championKey = draft.quickTournament.championKey;
+  const championTeam = draft.teams[championKey];
+  if (championTeam && amount > 0) {
+    championTeam.budget = Number(championTeam.budget || 0) + amount;
+    addNews(draft, code, `Liga UFL: ${championTeam.name} cobro ${formatMoney(amount)} por ganar el torneo rapido`);
+  }
+  draft.quickTournament.prizePaid = true;
 };
 
 const emptyPlayoffMatch = (stage, label) => ({
@@ -621,6 +708,8 @@ const resetLeagueForNewSeason = (draft, lobby) => {
   draft.leagueMatchCount = 0;
   draft.visibleRoundStart = 1;
   draft.seasonWinnerAnnounced = false;
+  draft.seasonLeaguePrizePaid = false;
+  draft.playoffPrizePaid = false;
   draft.playoff = null;
   draft.standings = (draft.standings || []).map((team) => ({
     ...team,
@@ -668,7 +757,7 @@ const shuffleList = (items = [], seed = Date.now()) => {
   return list;
 };
 
-const createQuickTournament = (draft, selectedTeams = []) => {
+const createQuickTournament = (draft, selectedTeams = [], prize = DEFAULT_QUICK_TOURNAMENT_PRIZE) => {
   const bracketSize = Math.max(2, nextPowerOfTwo(selectedTeams.length));
   const participants = [...selectedTeams];
   while (participants.length < bracketSize) {
@@ -719,6 +808,8 @@ const createQuickTournament = (draft, selectedTeams = []) => {
     active: true,
     rounds,
     championKey: "",
+    prize: Number(prize) || 0,
+    prizePaid: false,
   };
 };
 
@@ -1201,6 +1292,11 @@ const getLobbyPayload = (code) => {
     champions: lobby.champions,
     fillCpuTeams: lobby.fillCpuTeams,
     randomEvents: lobby.randomEvents,
+    leaguePrize: Number(lobby.leaguePrize) || DEFAULT_LEAGUE_PRIZE,
+    playoffPrize1: Number(lobby.playoffPrize1) || DEFAULT_PLAYOFF_PRIZES.first,
+    playoffPrize2: Number(lobby.playoffPrize2) || DEFAULT_PLAYOFF_PRIZES.second,
+    playoffPrize3: Number(lobby.playoffPrize3) || DEFAULT_PLAYOFF_PRIZES.third,
+    playoffPrize4: Number(lobby.playoffPrize4) || DEFAULT_PLAYOFF_PRIZES.fourth,
     players: lobby.players,
     status: lobby.status,
   };
@@ -1337,6 +1433,8 @@ const ensureDraft = (code) => {
       quickTournament: null,
       visibleRoundStart: 1,
       seasonWinnerAnnounced: false,
+      seasonLeaguePrizePaid: false,
+      playoffPrizePaid: false,
       news: [{ code, text: "Seleccion principal iniciada", createdAt: Date.now() }],
     });
   }
@@ -1510,6 +1608,11 @@ app.post("/lobbies", async (req, res) => {
     champions: Boolean(req.body.champions),
     fillCpuTeams: req.body.fillCpuTeams !== false,
     randomEvents: req.body.randomEvents !== false,
+    leaguePrize: Number(req.body.leaguePrize) || DEFAULT_LEAGUE_PRIZE,
+    playoffPrize1: Number(req.body.playoffPrize1) || DEFAULT_PLAYOFF_PRIZES.first,
+    playoffPrize2: Number(req.body.playoffPrize2) || DEFAULT_PLAYOFF_PRIZES.second,
+    playoffPrize3: Number(req.body.playoffPrize3) || DEFAULT_PLAYOFF_PRIZES.third,
+    playoffPrize4: Number(req.body.playoffPrize4) || DEFAULT_PLAYOFF_PRIZES.fourth,
     players: [username],
     status: "waiting",
   });
@@ -2439,7 +2542,7 @@ app.post("/drafts/:code/results", (req, res) => {
       : getLeagueSize(lobby.format) * 2;
 
   if (draft.leagueMatchCount >= totalMatches) {
-    appendSeasonWinnerIfNeeded(draft, code);
+    appendSeasonWinnerIfNeeded(draft, lobby, code);
   }
 
   sendDraftUpdate(code);
@@ -2496,7 +2599,7 @@ app.post("/drafts/:code/cpu-result", (req, res) => {
       : getLeagueSize(lobby.format) * 2;
 
   if (draft.leagueMatchCount >= totalMatches) {
-    appendSeasonWinnerIfNeeded(draft, code);
+    appendSeasonWinnerIfNeeded(draft, lobby, code);
   }
 
   markScheduleMatchPlayed(draft, cpuTeamAStanding.key, cpuTeamBStanding.key, derivedResult);
@@ -2633,6 +2736,7 @@ app.post("/drafts/:code/finish-playoff", (req, res) => {
     return res.status(403).json({ error: "Solo el organizador puede cerrar la liguilla" });
   }
 
+  awardPlayoffPrizesIfNeeded(draft, lobby, code);
   resetLeagueForNewSeason(draft, lobby);
   addNews(draft, code, "Liga UFL: termino la liguilla y se reinicio el sistema de subastas y transferencias");
   sendDraftUpdate(code);
@@ -2641,7 +2745,7 @@ app.post("/drafts/:code/finish-playoff", (req, res) => {
 
 app.post("/drafts/:code/quick-tournament", (req, res) => {
   const code = String(req.params.code).trim();
-  const { username, teamKeys = [] } = req.body;
+  const { username, teamKeys = [], prize } = req.body;
   const draft = ensureDraft(code);
   const lobby = lobbies.get(code);
 
@@ -2658,8 +2762,12 @@ app.post("/drafts/:code/quick-tournament", (req, res) => {
     return res.status(400).json({ error: "Selecciona al menos 2 clubes reales" });
   }
 
-  createQuickTournament(draft, selectedTeams);
-  addNews(draft, code, `Liga UFL: el organizador creo un torneo rapido con ${selectedTeams.length} clubes reales`);
+  createQuickTournament(draft, selectedTeams, Number(prize) || DEFAULT_QUICK_TOURNAMENT_PRIZE);
+  addNews(
+    draft,
+    code,
+    `Liga UFL: el organizador creo un torneo rapido con ${selectedTeams.length} clubes reales y premio de ${formatMoney(Number(prize) || DEFAULT_QUICK_TOURNAMENT_PRIZE)}`
+  );
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });
@@ -2699,6 +2807,7 @@ app.post("/drafts/:code/quick-tournament-result", (req, res) => {
   match.result = { homeGoals: goalsA, awayGoals: goalsB };
   match.winnerKey = goalsA > goalsB ? match.homeKey : match.awayKey;
   progressQuickTournament(draft);
+  awardQuickTournamentPrizeIfNeeded(draft, code);
   addNews(draft, code, `Liga UFL: ${goalsA > goalsB ? match.homeName : match.awayName} avanzo en torneo rapido`);
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
