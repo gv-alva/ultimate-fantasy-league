@@ -15,17 +15,17 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.800";
+const SERVER_VERSION = "v0.801";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
 const RANDOM_EVENT_PROBABILITY = 0.2;
-const DEFAULT_LEAGUE_PRIZE = 8;
+const DEFAULT_LEAGUE_PRIZE = 20;
 const DEFAULT_PLAYOFF_PRIZES = {
-  first: 18,
-  second: 10,
-  third: 6,
-  fourth: 3,
+  first: 25,
+  second: 14,
+  third: 8,
+  fourth: 4,
 };
 const DEFAULT_QUICK_TOURNAMENT_PRIZE = 6;
 
@@ -254,6 +254,23 @@ const getTeamPayroll = (team) =>
   team.squad.reduce((sum, player) => sum + (Number(player.salary) || 0), 0);
 
 const formatMoney = (value) => `${Math.round(Number(value || 0) * 10) / 10}M`;
+
+const getLeagueRegularSeasonTotals = (lobby, draft) => {
+  if (lobby?.leagueType === "Fantasia") {
+    const teamCount = Math.max((draft?.standings || []).length, 0);
+    return {
+      totalMatches: teamCount * Math.max(teamCount - 1, 0),
+      matchesPerClub: Math.max(teamCount - 1, 0) * 2,
+    };
+  }
+
+  const realTeamCount = Math.max((lobby?.players || []).length, 1);
+  const totalMatches = getLeagueSize(lobby?.format) * 2;
+  return {
+    totalMatches,
+    matchesPerClub: Math.max(1, Math.round(totalMatches / realTeamCount)),
+  };
+};
 
 const getLobbyPrizeConfig = (lobby = {}) => ({
   leaguePrize: Number(lobby.leaguePrize) || DEFAULT_LEAGUE_PRIZE,
@@ -580,6 +597,7 @@ const appendSeasonWinnerIfNeeded = (draft, lobby, code) => {
   draft.seasonWinnerAnnounced = true;
   awardLeaguePrizeIfNeeded(draft, lobby, code);
   addNews(draft, code, `Liga UFL: ${winner.name} es campeon de la temporada`);
+  addNews(draft, code, "Liga UFL: se completo la liga regular. La liguilla ya esta habilitada.");
 };
 
 const awardPlayoffPrizesIfNeeded = (draft, lobby, code) => {
@@ -2431,6 +2449,32 @@ app.post("/drafts/:code/start-season", (req, res) => {
   res.json(getDraftPayload(code));
 });
 
+app.post("/drafts/:code/news-message", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username, message } = req.body;
+  const draft = ensureDraft(code);
+  const lobby = lobbies.get(code);
+
+  if (!draft || !lobby) {
+    return res.status(404).json({ error: "Draft no encontrado" });
+  }
+
+  if (!lobby.players.includes(username)) {
+    return res.status(403).json({ error: "No perteneces a esta liga" });
+  }
+
+  const team = draft.teams[username];
+  const cleanMessage = String(message || "").trim();
+
+  if (!team || !cleanMessage) {
+    return res.status(400).json({ error: "Escribe un mensaje valido" });
+  }
+
+  addNews(draft, code, `Club ${team.name}: ${cleanMessage.slice(0, 220)}`);
+  sendDraftUpdate(code);
+  res.json(getDraftPayload(code));
+});
+
 app.post("/drafts/:code/results", (req, res) => {
   const code = String(req.params.code).trim();
   const {
@@ -2536,10 +2580,7 @@ app.post("/drafts/:code/results", (req, res) => {
 
   maybeAdvanceFantasyRoundBlock(draft, lobby, code);
 
-  const totalMatches =
-    lobby.leagueType === "Fantasia"
-      ? draft.standings.length * Math.max(draft.standings.length - 1, 0)
-      : getLeagueSize(lobby.format) * 2;
+  const { totalMatches } = getLeagueRegularSeasonTotals(lobby, draft);
 
   if (draft.leagueMatchCount >= totalMatches) {
     appendSeasonWinnerIfNeeded(draft, lobby, code);
@@ -2593,10 +2634,7 @@ app.post("/drafts/:code/cpu-result", (req, res) => {
   draft.leagueMatchCount = Number(draft.leagueMatchCount || 0) + 1;
   syncUnavailablePlayers(draft);
   maybeTriggerRandomEvent(code, draft);
-  const totalMatches =
-    lobby.leagueType === "Fantasia"
-      ? draft.standings.length * Math.max(draft.standings.length - 1, 0)
-      : getLeagueSize(lobby.format) * 2;
+  const { totalMatches } = getLeagueRegularSeasonTotals(lobby, draft);
 
   if (draft.leagueMatchCount >= totalMatches) {
     appendSeasonWinnerIfNeeded(draft, lobby, code);

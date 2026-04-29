@@ -373,6 +373,8 @@ const getNewsAuthor = (item: NewsEntry) =>
     ? "Fabrizio Romano"
     : item.text.startsWith("Fabritzio Fauna:")
       ? "Fabritzio Fauna"
+      : item.text.startsWith("Club ")
+        ? item.text.slice(5).split(":")[0] || "Club"
       : "Liga UFL";
 
 const getNewsTone = (item: NewsEntry) =>
@@ -380,12 +382,16 @@ const getNewsTone = (item: NewsEntry) =>
     ? "romano"
     : item.text.startsWith("Fabritzio Fauna:")
       ? "fauna"
+      : item.text.startsWith("Club ")
+        ? "club"
       : "liga";
 
 const getNewsText = (item: NewsEntry) =>
-  item.text
-    .replace("Fabrizio Romano: ", "")
-    .replace("Fabritzio Fauna: ", "");
+  item.text.startsWith("Club ")
+    ? item.text.split(": ").slice(1).join(": ")
+    : item.text
+        .replace("Fabrizio Romano: ", "")
+        .replace("Fabritzio Fauna: ", "");
 
 const getNewsAvatarImage = (item: NewsEntry) =>
   item.text.startsWith("Fabrizio Romano:")
@@ -717,6 +723,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [showQuickTournamentForm, setShowQuickTournamentForm] = useState(false);
   const [selectedQuickTeams, setSelectedQuickTeams] = useState<string[]>([]);
   const [quickTournamentPrize, setQuickTournamentPrize] = useState("6");
+  const [clubFeedMessage, setClubFeedMessage] = useState("");
   const [editStandingKey, setEditStandingKey] = useState("");
   const [editPlayed, setEditPlayed] = useState("0");
   const [editWins, setEditWins] = useState("0");
@@ -894,7 +901,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     const leagueSize = settings.format === "Pequena" ? 8 : settings.format === "Corta" ? 10 : 20;
     const totalMatches = leagueSize * 2;
     const halfSeasonMatch = Math.floor(totalMatches / 2);
-    const windowOpen = phase === "market" || leagueMatchCount === 0 || leagueMatchCount === halfSeasonMatch;
+    const windowOpen = phase === "market" || leagueMatchCount === 0 || leagueMatchCount >= halfSeasonMatch;
 
     if (!windowOpen || appliedSearch.nonce === 0) {
       setResults([]);
@@ -933,7 +940,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     const leagueSize = settings.format === "Pequena" ? 8 : settings.format === "Corta" ? 10 : 20;
     const totalMatches = leagueSize * 2;
     const halfSeasonMatch = Math.floor(totalMatches / 2);
-    const windowOpen = phase === "market" || leagueMatchCount === 0 || leagueMatchCount === halfSeasonMatch;
+    const windowOpen = phase === "market" || leagueMatchCount === 0 || leagueMatchCount >= halfSeasonMatch;
     const trimmedSearch = search.trim();
 
     if (!windowOpen) {
@@ -1079,23 +1086,25 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     () => sortLeagueStandings(settings.leagueType === "Fantasia" ? scheduleDerivedStandings : standings),
     [scheduleDerivedStandings, settings.leagueType, standings]
   );
-  const managerMatchCount = settings.leagueType === "Fantasia"
-    ? schedule
-        .flat()
-        .filter(
-          (match) =>
-            match.played &&
-            match.result &&
-            (players.includes(match.homeKey) || players.includes(match.awayKey))
-        ).length
-    : leagueMatchCount;
   const totalSeasonMatches =
     settings.leagueType === "Fantasia"
       ? displayStandings.length * Math.max(displayStandings.length - 1, 0)
       : leagueTeams.length * 2;
+  const matchesPerClub =
+    settings.leagueType === "Fantasia"
+      ? Math.max(displayStandings.length - 1, 0) * 2
+      : Math.max(1, Math.round(totalSeasonMatches / Math.max(leagueTeams.length, 1)));
+  const currentClubStanding = displayStandings.find((team) => team.key === currentUser);
+  const currentClubMatchCount = currentClubStanding?.played || 0;
+  const globalLeagueMatchCount = settings.leagueType === "Fantasia"
+    ? schedule
+        .flat()
+        .filter((match) => match.played && match.result)
+        .length
+    : leagueMatchCount;
   const midSeasonMatch = Math.floor(totalSeasonMatches / 2);
   const transferWindowOpen =
-    phase === "market" || leagueMatchCount === 0 || leagueMatchCount === midSeasonMatch;
+    phase === "market" || globalLeagueMatchCount === 0 || globalLeagueMatchCount >= midSeasonMatch;
   const playerOwners = new Map<number, string>();
   Object.values(teams).forEach((team) => {
     team.squad.forEach((player) => playerOwners.set(player.ID, team.owner));
@@ -1991,6 +2000,34 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     }
   };
 
+  const sendClubFeedMessage = async () => {
+    const message = clubFeedMessage.trim();
+    if (!message) return;
+
+    const response = await fetch(`${API_URL}/drafts/${leagueCode}/news-message`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+        message,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      alert(errorData?.error || "No se pudo publicar el mensaje");
+      return;
+    }
+
+    const payload = (await response.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
+    }
+    setClubFeedMessage("");
+  };
+
   const canManageQuickMatch = (match: QuickTournamentMatch) =>
     isOrganizer || match.homeKey === currentUser || match.awayKey === currentUser;
 
@@ -2112,7 +2149,12 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const renderInicio = () => (
     <section className="draft-panel">
       <h2>Noticias de la liga</h2>
-      <p>Liga {leagueCode} | Partidos manager {managerMatchCount}/{totalSeasonMatches}</p>
+      <p>
+        Liga {leagueCode} |{" "}
+        {isOrganizer
+          ? `Partidos liga ${globalLeagueMatchCount}/${totalSeasonMatches} | Restan ${Math.max(totalSeasonMatches - globalLeagueMatchCount, 0)}`
+          : `${currentTeam?.name || currentUser} ${currentClubMatchCount}/${matchesPerClub} partidos`}
+      </p>
 
       {serverPhase === "dashboard" && (
         <button
@@ -2123,6 +2165,19 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
           {isOrganizer ? "INICIAR SUBASTA" : "ESPERANDO AL ORGANIZADOR"}
         </button>
       )}
+
+      <div className="club-feed-composer">
+        <input
+          className="input"
+          maxLength={220}
+          placeholder={`Mensaje del club ${currentTeam?.name || currentUser}`}
+          value={clubFeedMessage}
+          onChange={(event) => setClubFeedMessage(event.target.value)}
+        />
+        <button className="small-action" onClick={sendClubFeedMessage}>
+          PUBLICAR
+        </button>
+      </div>
 
       <div className="news-list">
         {news.length === 0 && <div className="draft-empty-state">Aun no hay noticias.</div>}

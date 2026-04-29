@@ -4,7 +4,7 @@ import Draft from "./Draft";
 import Lobby from "./Lobby";
 import logo from "./assets/logo.png";
 
-const APP_VERSION = "0.800";
+const APP_VERSION = "0.801";
 
 type LobbyData = {
   code: string;
@@ -95,11 +95,11 @@ export default function App() {
   const [leagueType, setLeagueType] = useState("Real");
   const [money, setMoney] = useState(100);
   const [salaryCap, setSalaryCap] = useState(1800);
-  const [leaguePrize, setLeaguePrize] = useState(8);
-  const [playoffPrize1, setPlayoffPrize1] = useState(18);
-  const [playoffPrize2, setPlayoffPrize2] = useState(10);
-  const [playoffPrize3, setPlayoffPrize3] = useState(6);
-  const [playoffPrize4, setPlayoffPrize4] = useState(3);
+  const [leaguePrize, setLeaguePrize] = useState(20);
+  const [playoffPrize1, setPlayoffPrize1] = useState(25);
+  const [playoffPrize2, setPlayoffPrize2] = useState(14);
+  const [playoffPrize3, setPlayoffPrize3] = useState(8);
+  const [playoffPrize4, setPlayoffPrize4] = useState(4);
 
   // lobby
   const [leagueCode, setLeagueCode] = useState("");
@@ -117,11 +117,11 @@ export default function App() {
     champions: false,
     fillCpuTeams: true,
     randomEvents: true,
-    leaguePrize: 8,
-    playoffPrize1: 18,
-    playoffPrize2: 10,
-    playoffPrize3: 6,
-    playoffPrize4: 3,
+    leaguePrize: 20,
+    playoffPrize1: 25,
+    playoffPrize2: 14,
+    playoffPrize3: 8,
+    playoffPrize4: 4,
   });
 
   const persistLeague = (league: SavedLeague) => {
@@ -306,11 +306,11 @@ export default function App() {
         champions: false,
         fillCpuTeams: true,
         randomEvents: true,
-        leaguePrize: 8,
-        playoffPrize1: 18,
-        playoffPrize2: 10,
-        playoffPrize3: 6,
-        playoffPrize4: 3,
+        leaguePrize: 20,
+        playoffPrize1: 25,
+        playoffPrize2: 14,
+        playoffPrize3: 8,
+        playoffPrize4: 4,
       });
     setScreen("login");
   };
@@ -781,11 +781,11 @@ export default function App() {
                 value={leaguePrize}
                 onChange={(e) => setLeaguePrize(Number(e.target.value))}
               >
-                <option value={4}>4M para cada club real</option>
-                <option value={6}>6M para cada club real</option>
-                <option value={8}>8M para cada club real</option>
-                <option value={10}>10M para cada club real</option>
                 <option value={12}>12M para cada club real</option>
+                <option value={15}>15M para cada club real</option>
+                <option value={20}>20M para cada club real</option>
+                <option value={25}>25M para cada club real</option>
+                <option value={30}>30M para cada club real</option>
               </select>
             </label>
 
@@ -799,11 +799,11 @@ export default function App() {
                     value={playoffPrize1}
                     onChange={(e) => setPlayoffPrize1(Number(e.target.value))}
                   >
-                    <option value={12}>12M</option>
                     <option value={15}>15M</option>
-                    <option value={18}>18M</option>
                     <option value={20}>20M</option>
                     <option value={25}>25M</option>
+                    <option value={30}>30M</option>
+                    <option value={35}>35M</option>
                   </select>
                 </label>
                 <label className="field">
@@ -813,10 +813,10 @@ export default function App() {
                     value={playoffPrize2}
                     onChange={(e) => setPlayoffPrize2(Number(e.target.value))}
                   >
-                    <option value={6}>6M</option>
                     <option value={8}>8M</option>
                     <option value={10}>10M</option>
                     <option value={12}>12M</option>
+                    <option value={14}>14M</option>
                     <option value={15}>15M</option>
                   </select>
                 </label>
@@ -827,11 +827,11 @@ export default function App() {
                     value={playoffPrize3}
                     onChange={(e) => setPlayoffPrize3(Number(e.target.value))}
                   >
-                    <option value={3}>3M</option>
                     <option value={5}>5M</option>
                     <option value={6}>6M</option>
                     <option value={8}>8M</option>
                     <option value={10}>10M</option>
+                    <option value={12}>12M</option>
                   </select>
                 </label>
                 <label className="field">
@@ -841,11 +841,11 @@ export default function App() {
                     value={playoffPrize4}
                     onChange={(e) => setPlayoffPrize4(Number(e.target.value))}
                   >
-                    <option value={1}>1M</option>
                     <option value={2}>2M</option>
                     <option value={3}>3M</option>
                     <option value={4}>4M</option>
                     <option value={5}>5M</option>
+                    <option value={6}>6M</option>
                   </select>
                 </label>
               </div>
