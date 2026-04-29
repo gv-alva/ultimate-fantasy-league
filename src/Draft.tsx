@@ -224,8 +224,31 @@ type QuickTournamentState = {
   prize?: number;
 };
 
+type IconName =
+  | "home"
+  | "club"
+  | "league"
+  | "transfer"
+  | "back"
+  | "inbox"
+  | "logout"
+  | "table"
+  | "clubs"
+  | "playoff"
+  | "quick"
+  | "add"
+  | "edit"
+  | "rename"
+  | "prize";
+
 const tabs: Tab[] = ["Inicio", "Club", "Liga", "Transferencia"];
 const groups: PositionGroup[] = ["POR", "DEF", "MED", "EXT", "DEL"];
+const tabIcons: Record<Tab, IconName> = {
+  Inicio: "home",
+  Club: "club",
+  Liga: "league",
+  Transferencia: "transfer",
+};
 
 const groupLabels: Record<PositionGroup, string> = {
   POR: "Portero",
@@ -233,6 +256,78 @@ const groupLabels: Record<PositionGroup, string> = {
   MED: "Mediocampo",
   EXT: "Extremo",
   DEL: "Delantero",
+};
+
+const DraftIcon = ({ name }: { name: IconName }) => {
+  const common = {
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.9,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+
+  const icons: Record<IconName, ReactNode> = {
+    home: <path {...common} d="M4.5 10.5 12 4l7.5 6.5V20h-5.5v-5H10v5H4.5z" />,
+    club: <>
+      <path {...common} d="M12 4l6.5 2.3v5.4c0 4.2-2.5 6.8-6.5 8.8-4-2-6.5-4.6-6.5-8.8V6.3z" />
+    </>,
+    league: <>
+      <path {...common} d="M8 5h8v3h3v3c0 3.5-2.6 5.5-5.5 5.9A6 6 0 0 1 12 18a6 6 0 0 1-1.5-1.1C7.6 16.5 5 14.5 5 11V8h3z" />
+      <path {...common} d="M9 21h6M10.5 18.5h3" />
+    </>,
+    transfer: <>
+      <path {...common} d="M5 8h10" /><path {...common} d="m11 4 4 4-4 4" />
+      <path {...common} d="M19 16H9" /><path {...common} d="m13 12-4 4 4 4" />
+    </>,
+    back: <>
+      <path {...common} d="M19 12H7" /><path {...common} d="m11 7-5 5 5 5" />
+    </>,
+    inbox: <>
+      <path {...common} d="M4.5 7.5h15v9h-4l-1.5 3h-4l-1.5-3h-4z" />
+      <path {...common} d="M4.5 10.5h15" />
+    </>,
+    logout: <>
+      <path {...common} d="M10 5H6.5A1.5 1.5 0 0 0 5 6.5v11A1.5 1.5 0 0 0 6.5 19H10" />
+      <path {...common} d="M14 8.5 18 12l-4 3.5" />
+      <path {...common} d="M18 12H9" />
+    </>,
+    table: <>
+      <path {...common} d="M6 18V10" /><path {...common} d="M12 18V6" /><path {...common} d="M18 18v-8" />
+      <path {...common} d="M4.5 20h15" />
+    </>,
+    clubs: <>
+      <path {...common} d="M12 4l6.5 2.3v5.4c0 4.2-2.5 6.8-6.5 8.8-4-2-6.5-4.6-6.5-8.8V6.3z" />
+    </>,
+    playoff: <>
+      <path {...common} d="M8 5h8v3h3v3c0 3.5-2.6 5.5-5.5 5.9A6 6 0 0 1 12 18a6 6 0 0 1-1.5-1.1C7.6 16.5 5 14.5 5 11V8h3z" />
+      <path {...common} d="M9 21h6" />
+    </>,
+    quick: <>
+      <path {...common} d="M13 3 6.5 13h4l-1 8L17.5 11h-4z" />
+    </>,
+    add: <>
+      <path {...common} d="M12 5v14" /><path {...common} d="M5 12h14" />
+    </>,
+    edit: <>
+      <path {...common} d="m5 19 4.2-1 8.3-8.3a1.8 1.8 0 0 0 0-2.5l-.7-.7a1.8 1.8 0 0 0-2.5 0L6 14.8 5 19z" />
+      <path {...common} d="M12.5 8.5 15.5 11.5" />
+    </>,
+    rename: <>
+      <path {...common} d="M7.5 18a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM16.5 18a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+      <path {...common} d="M7.5 12V9a4.5 4.5 0 0 1 9 0v3" />
+    </>,
+    prize: <>
+      <path {...common} d="M8 5h8v3h3v3c0 3.5-2.6 5.5-5.5 5.9A6 6 0 0 1 12 18a6 6 0 0 1-1.5-1.1C7.6 16.5 5 14.5 5 11V8h3z" />
+      <path {...common} d="M9 21h6M10.5 18.5h3" />
+    </>,
+  };
+
+  return (
+    <svg className="draft-icon" viewBox="0 0 24 24" aria-hidden="true">
+      {icons[name]}
+    </svg>
+  );
 };
 
 const emptyStanding = (
@@ -2399,62 +2494,64 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     </section>
   );
 
+  const renderLeagueActionButton = (
+    label: string,
+    icon: IconName,
+    onClick: () => void,
+    options?: { active?: boolean; wide?: boolean; admin?: boolean }
+  ) => (
+    <button
+      className={[
+        "league-action-card",
+        options?.active ? "active" : "",
+        options?.wide ? "wide" : "",
+        options?.admin ? "admin" : "",
+      ].filter(Boolean).join(" ")}
+      onClick={onClick}
+    >
+      <span className="league-action-icon">
+        <DraftIcon name={icon} />
+      </span>
+      <span className="league-action-label">{label}</span>
+    </button>
+  );
+
   const renderTable = () => (
     <section className="draft-panel">
       <h2>Liga</h2>
-      <div className="draft-list-item">
-        <strong>Premios de temporada</strong>
+      <div className="draft-list-item season-prize-card">
+        <div className="season-prize-header">
+          <span className="season-prize-icon">
+            <DraftIcon name="prize" />
+          </span>
+          <strong>Premios de temporada</strong>
+        </div>
         <p>Liga: {money(settings.leaguePrize || 0)} para cada club real</p>
         <small>
           Liguilla: 1ro {money(settings.playoffPrize1 || 0)} | 2do {money(settings.playoffPrize2 || 0)} | 3ro{" "}
           {money(settings.playoffPrize3 || 0)} | 4to {money(settings.playoffPrize4 || 0)}
         </small>
       </div>
-      <div className="table-actions">
-        <button
-          className={`btn ${tableView === "tabla" ? "btn-login" : "btn-outline"} compact-btn`}
-          onClick={() => setTableView("tabla")}
-        >
-          TABLA
-        </button>
-        <button
-          className={`btn ${tableView === "clubes" ? "btn-login" : "btn-outline"} compact-btn`}
-          onClick={() => setTableView("clubes")}
-        >
-          CLUBES
-        </button>
-        <button
-          className={`btn ${tableView === "liguilla" ? "btn-login" : "btn-outline"} compact-btn`}
-          onClick={() => setTableView("liguilla")}
-        >
-          LIGUILLA
-        </button>
-        <button
-          className={`btn ${tableView === "torneo" ? "btn-login" : "btn-outline"} compact-btn`}
-          onClick={() => setTableView("torneo")}
-        >
-          TORNEO RAPIDO
-        </button>
-        {settings.leagueType === "Fantasia" && (
-          <button
-            className={`btn ${tableView === "partidos" ? "btn-login" : "btn-outline"} compact-btn`}
-            onClick={() => setTableView("partidos")}
-          >
-            PARTIDOS
-          </button>
-        )}
-        <button className="btn btn-login compact-btn" onClick={() => setShowResultForm(true)}>
-          AGREGAR RESULTADO
-        </button>
+      <div className="league-actions-shell">
+        <div className="league-action-feature">
+          {renderLeagueActionButton("AGREGAR RESULTADO", "add", () => setShowResultForm(true), { wide: true, active: true })}
+        </div>
+        <div className="league-actions-grid">
+          {renderLeagueActionButton("TABLA", "table", () => setTableView("tabla"), { active: tableView === "tabla" })}
+          {renderLeagueActionButton("CLUBES", "clubs", () => setTableView("clubes"), { active: tableView === "clubes" })}
+          {renderLeagueActionButton("LIGUILLA", "playoff", () => setTableView("liguilla"), { active: tableView === "liguilla" })}
+          {renderLeagueActionButton("TORNEO RAPIDO", "quick", () => setTableView("torneo"), { active: tableView === "torneo" })}
+          {settings.leagueType === "Fantasia" &&
+            renderLeagueActionButton("PARTIDOS", "league", () => setTableView("partidos"), { active: tableView === "partidos" })}
+        </div>
         {isOrganizer && settings.fillCpuTeams && settings.leagueType !== "Fantasia" && (
-          <>
-            <button className="btn btn-outline compact-btn" onClick={openStandingEditor}>
-              EDITAR TABLA
-            </button>
-            <button className="btn btn-outline compact-btn" onClick={() => setShowCpuRenameForm(true)}>
-              RENOMBRAR CLUBES
-            </button>
-          </>
+          <div className="league-admin-block">
+            <div className="league-admin-title">Administracion</div>
+            <div className="league-admin-grid">
+              {renderLeagueActionButton("EDITAR TABLA", "edit", openStandingEditor, { admin: true })}
+              {renderLeagueActionButton("RENOMBRAR CLUBES", "rename", () => setShowCpuRenameForm(true), { admin: true })}
+            </div>
+          </div>
         )}
       </div>
       {tableView === "tabla" ? (
@@ -2964,14 +3061,17 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         </div>
         <div className="draft-toolbar">
           <button className="toolbar-back" onClick={handleToolbarBack}>
-            Atras
+            <DraftIcon name="back" />
+            <span>Atras</span>
           </button>
           <button className="small-action inbox-btn" onClick={() => setShowInbox(true)}>
-            Buzon
+            <DraftIcon name="inbox" />
+            <span>Buzon</span>
             {myInbox.length > 0 && <span className="notif-dot toolbar-dot"></span>}
           </button>
           <button className="logout-btn draft-logout" onClick={onLogout}>
-            Cerrar sesion
+            <DraftIcon name="logout" />
+            <span>Cerrar sesion</span>
           </button>
         </div>
       </header>
@@ -2987,7 +3087,12 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
             className={activeTab === tab ? "active" : ""}
             onClick={() => setActiveTab(tab)}
           >
-            {tab}
+            <span className="tab-button-inner">
+              <span className="tab-icon-wrap">
+                <DraftIcon name={tabIcons[tab]} />
+              </span>
+              <span className="tab-label">{tab}</span>
+            </span>
             {tab === "Transferencia" && pendingReceived > 0 && <span className="notif-dot"></span>}
           </button>
         ))}

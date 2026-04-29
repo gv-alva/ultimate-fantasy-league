@@ -824,6 +824,7 @@ const resetLeagueForNewSeason = (draft, lobby) => {
   draft.transferWindowId = Number(draft.transferWindowId || 0) + 1;
   draft.leagueMatchCount = 0;
   draft.regularSeasonComplete = false;
+  draft.lastInjuryTriggerMatch = 0;
   draft.visibleRoundStart = 1;
   draft.seasonWinnerAnnounced = false;
   draft.seasonLeaguePrizePaid = false;
@@ -1276,7 +1277,11 @@ const syncUnavailablePlayers = (draft) => {
 };
 
 const maybeTriggerRandomEvent = (code, draft) => {
-  if (!draft.randomEvents || Math.random() >= RANDOM_EVENT_PROBABILITY) return null;
+  if (!draft.randomEvents) return null;
+
+  const currentMatch = Number(draft.leagueMatchCount || 0);
+  if (currentMatch === 0 || currentMatch % 2 !== 0) return null;
+  if (Number(draft.lastInjuryTriggerMatch || 0) === currentMatch) return null;
 
   const teamsWithPlayers = Object.entries(draft.teams).filter(([, team]) => team.squad.length > 0);
   if (teamsWithPlayers.length === 0) return null;
@@ -1292,7 +1297,7 @@ const maybeTriggerRandomEvent = (code, draft) => {
 
   const player = availablePlayers[Math.floor(Math.random() * availablePlayers.length)];
   const reason = randomEventTemplates[Math.floor(Math.random() * randomEventTemplates.length)];
-  const unavailableUntilMatch = Number(draft.leagueMatchCount || 0) + 2;
+  const unavailableUntilMatch = currentMatch + 2;
 
   team.squad = team.squad.map((item) =>
     item.ID === player.ID
@@ -1307,6 +1312,8 @@ const maybeTriggerRandomEvent = (code, draft) => {
   if (!draft.inbox[owner]) {
     draft.inbox[owner] = [];
   }
+
+  draft.lastInjuryTriggerMatch = currentMatch;
 
   const inboxItem = {
     id: `event-${code}-${player.ID}-${Date.now()}`,
@@ -1554,6 +1561,7 @@ const ensureDraft = (code) => {
         acc[owner] = [];
         return acc;
       }, {}),
+      lastInjuryTriggerMatch: 0,
       standings: [],
       schedule: [],
       playoff: null,
