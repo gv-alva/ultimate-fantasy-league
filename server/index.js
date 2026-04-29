@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.801";
+const SERVER_VERSION = "v0.802";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -68,6 +68,64 @@ const generatedClubNames = [
   "Valle Dorado",
   "Nexus United",
   "Puerto Atlas",
+];
+
+const sponsorPresets = [
+  {
+    name: "Nike",
+    values: {
+      "Ingreso por ganar": 5,
+      "Ingreso por empatar": 2.5,
+      "Ingreso por perder": 1,
+      "Maximo Goleador": 5,
+      "Maximo MVP": 4,
+      Tarjetas: -3,
+    },
+  },
+  {
+    name: "Adidas",
+    values: {
+      "Ingreso por ganar": 4.5,
+      "Ingreso por empatar": 2,
+      "Ingreso por perder": 1,
+      "Maximo Goleador": 4,
+      "Maximo MVP": 4,
+      Tarjetas: -2.5,
+    },
+  },
+  {
+    name: "Puma",
+    values: {
+      "Ingreso por ganar": 4,
+      "Ingreso por empatar": 2,
+      "Ingreso por perder": 1,
+      "Maximo Goleador": 4,
+      "Maximo MVP": 3,
+      Tarjetas: -2,
+    },
+  },
+  {
+    name: "Under Armour",
+    values: {
+      "Ingreso por ganar": 3.5,
+      "Ingreso por empatar": 1.5,
+      "Ingreso por perder": 0.5,
+      "Maximo Goleador": 3,
+      "Maximo MVP": 3,
+      Tarjetas: -1.5,
+    },
+  },
+  {
+    name: "Jordan",
+    values: {
+      "Ingreso por ganar": 3,
+      "Ingreso por empatar": 1,
+      "Ingreso por perder": 0.5,
+      "Maximo Goleador": 2.5,
+      "Maximo MVP": 2.5,
+      Tarjetas: -1,
+    },
+  },
 ];
 
 const lobbies = new Map();
@@ -254,6 +312,14 @@ const getTeamPayroll = (team) =>
   team.squad.reduce((sum, player) => sum + (Number(player.salary) || 0), 0);
 
 const formatMoney = (value) => `${Math.round(Number(value || 0) * 10) / 10}M`;
+
+const createSponsor = (index = 0) => {
+  const preset = sponsorPresets[index % sponsorPresets.length] || sponsorPresets[0];
+  return {
+    name: preset.name,
+    values: { ...preset.values },
+  };
+};
 
 const getLeagueRegularSeasonTotals = (lobby, draft) => {
   if (lobby?.leagueType === "Fantasia") {
@@ -1414,11 +1480,13 @@ const ensureDraft = (code) => {
 
   if (!drafts.has(code)) {
     const teams = lobby.players.reduce((acc, owner) => {
+      const ownerIndex = lobby.players.indexOf(owner);
       acc[owner] = {
         owner,
         name: owner,
         budget: lobby.money,
         salaryCap: lobby.salaryCap,
+        sponsor: createSponsor(ownerIndex),
         protectedPlayerIds: [],
         squad: [],
       };
@@ -1456,6 +1524,13 @@ const ensureDraft = (code) => {
       news: [{ code, text: "Seleccion principal iniciada", createdAt: Date.now() }],
     });
   }
+
+  lobby.players.forEach((owner, ownerIndex) => {
+    const team = drafts.get(code)?.teams?.[owner];
+    if (team && !team.sponsor) {
+      team.sponsor = createSponsor(ownerIndex);
+    }
+  });
 
   syncStandingsWithTeams(drafts.get(code), lobby);
   syncFantasySchedule(drafts.get(code), lobby);

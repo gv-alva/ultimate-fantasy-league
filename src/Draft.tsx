@@ -282,7 +282,6 @@ const sortLeagueStandings = (table: Standing[]) =>
       leftTeam.name.localeCompare(rightTeam.name)
   );
 
-const sponsorNames = ["Naiq", "Adibas", "Pumma", "Under Armoury", "Jordyn"];
 const sponsorCategories = [
   "Ingreso por ganar",
   "Ingreso por empatar",
@@ -290,6 +289,64 @@ const sponsorCategories = [
   "Maximo Goleador",
   "Maximo MVP",
   "Tarjetas",
+];
+
+const sponsorPresets: Sponsor[] = [
+  {
+    name: "Nike",
+    values: {
+      "Ingreso por ganar": 5,
+      "Ingreso por empatar": 2.5,
+      "Ingreso por perder": 1,
+      "Maximo Goleador": 5,
+      "Maximo MVP": 4,
+      Tarjetas: -3,
+    },
+  },
+  {
+    name: "Adidas",
+    values: {
+      "Ingreso por ganar": 4.5,
+      "Ingreso por empatar": 2,
+      "Ingreso por perder": 1,
+      "Maximo Goleador": 4,
+      "Maximo MVP": 4,
+      Tarjetas: -2.5,
+    },
+  },
+  {
+    name: "Puma",
+    values: {
+      "Ingreso por ganar": 4,
+      "Ingreso por empatar": 2,
+      "Ingreso por perder": 1,
+      "Maximo Goleador": 4,
+      "Maximo MVP": 3,
+      Tarjetas: -2,
+    },
+  },
+  {
+    name: "Under Armour",
+    values: {
+      "Ingreso por ganar": 3.5,
+      "Ingreso por empatar": 1.5,
+      "Ingreso por perder": 0.5,
+      "Maximo Goleador": 3,
+      "Maximo MVP": 3,
+      Tarjetas: -1.5,
+    },
+  },
+  {
+    name: "Jordan",
+    values: {
+      "Ingreso por ganar": 3,
+      "Ingreso por empatar": 1,
+      "Ingreso por perder": 0.5,
+      "Maximo Goleador": 2.5,
+      "Maximo MVP": 2.5,
+      Tarjetas: -1,
+    },
+  },
 ];
 
 type AppliedSearch = {
@@ -412,23 +469,15 @@ const getEngagement = (item: NewsEntry, index: number) => ({
   reposts: ((item.text.length * 7 + index * 11) % 240) + 20,
 });
 
-const createSponsor = (owner: string, index: number): Sponsor => {
-  const name = sponsorNames[index % sponsorNames.length];
-  const winBase = 6 + ((owner.length + index) % 5);
-  const drawBase = Math.max(2, winBase - (2 + (index % 2)));
-  const loseBase = Math.max(1, drawBase - 2);
-  const values = sponsorCategories.reduce<Record<string, number>>((acc, category, categoryIndex) => {
-    if (category === "Ingreso por ganar") acc[category] = winBase;
-    else if (category === "Ingreso por empatar") acc[category] = drawBase;
-    else if (category === "Ingreso por perder") acc[category] = loseBase;
-    else {
-      const base = ((owner.length + index * 3 + categoryIndex * 2) % 7) + 1;
-      acc[category] = category === "Tarjetas" ? -base : base;
-    }
-    return acc;
-  }, {});
-
-  return { name, values };
+const createSponsor = (_owner: string, index: number): Sponsor => {
+  const preset = sponsorPresets[index % sponsorPresets.length] || sponsorPresets[0];
+  return {
+    name: preset.name,
+    values: sponsorCategories.reduce<Record<string, number>>((acc, category) => {
+      acc[category] = Number(preset.values[category] || 0);
+      return acc;
+    }, {}),
+  };
 };
 
 const hashNumber = (value: number) => {
