@@ -4,7 +4,7 @@ import Draft from "./Draft";
 import Lobby from "./Lobby";
 import logo from "./assets/logo.png";
 
-const APP_VERSION = "0.803";
+const APP_VERSION = "0.900";
 
 type LobbyData = {
   code: string;
@@ -565,9 +565,11 @@ export default function App() {
       <div className="top" style={{ position: "relative" }}>
         <img src={logo} className="logo" />
 
-        <button className="logout-btn" onClick={handleLogout}>
-          Cerrar sesion
-        </button>
+        {currentUser && screen !== "login" && (
+          <button className="logout-btn" onClick={handleLogout}>
+            Cerrar sesion
+          </button>
+        )}
       </div>
 
       {/* ===== HOME ===== */}

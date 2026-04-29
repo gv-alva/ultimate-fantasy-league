@@ -160,6 +160,7 @@ type DraftEvent = {
   pendingSignings: PendingSigning[];
   news: NewsEntry[];
   leagueMatchCount: number;
+  regularSeasonComplete?: boolean;
   inbox: Record<string, InboxItem[]>;
   standings: Standing[];
   schedule: ScheduleMatch[][];
@@ -742,6 +743,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [offers, setOffers] = useState<Offer[]>([]);
   const [pendingSignings, setPendingSignings] = useState<PendingSigning[]>([]);
   const [leagueMatchCount, setLeagueMatchCount] = useState(0);
+  const [regularSeasonComplete, setRegularSeasonComplete] = useState(false);
   const [standings, setStandings] = useState<Standing[]>([]);
   const [inbox, setInbox] = useState<Record<string, InboxItem[]>>({});
   const [showInbox, setShowInbox] = useState(false);
@@ -816,6 +818,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setPendingSignings(draft.pendingSignings || []);
     setNews(draft.news || []);
     setLeagueMatchCount(draft.leagueMatchCount || 0);
+    setRegularSeasonComplete(Boolean(draft.regularSeasonComplete));
     setInbox(draft.inbox || {});
     setStandings(draft.standings || []);
     setSchedule(draft.schedule || []);
@@ -856,6 +859,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setOffers([]);
     setPendingSignings([]);
     setLeagueMatchCount(0);
+    setRegularSeasonComplete(false);
     setActiveTab("Inicio");
     setClubView("plantilla");
     setOrganizer("");
@@ -949,10 +953,17 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     });
 
   useEffect(() => {
-    const leagueSize = settings.format === "Pequena" ? 8 : settings.format === "Corta" ? 10 : 20;
-    const totalMatches = leagueSize * 2;
+    const fantasyProgress = schedule.flat().filter((match) => match.played && match.result).length;
+    const realTeamCount = Math.max(standings.length, Object.keys(teams).length + cpuTeams.length, 1);
+    const totalMatches =
+      settings.leagueType === "Fantasia" ? realTeamCount * Math.max(realTeamCount - 1, 0) : realTeamCount * 40;
+    const progress =
+      settings.leagueType === "Fantasia"
+        ? fantasyProgress
+        : standings.reduce((sum, team) => sum + Number(team.played || 0), 0);
     const halfSeasonMatch = Math.floor(totalMatches / 2);
-    const windowOpen = phase === "market" || leagueMatchCount === 0 || leagueMatchCount >= halfSeasonMatch;
+    const windowOpen =
+      !regularSeasonComplete && (phase === "market" || progress === 0 || progress >= halfSeasonMatch);
 
     if (!windowOpen || appliedSearch.nonce === 0) {
       setResults([]);
@@ -985,13 +996,20 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       .catch(() => setResults([]));
 
     return () => controller.abort();
-  }, [appliedSearch, phase, teams, currentUser, leagueMatchCount, settings.format, leagueCode]);
+  }, [appliedSearch, phase, teams, currentUser, leagueMatchCount, settings.format, leagueCode, settings.leagueType, schedule, standings, cpuTeams.length, regularSeasonComplete]);
 
   useEffect(() => {
-    const leagueSize = settings.format === "Pequena" ? 8 : settings.format === "Corta" ? 10 : 20;
-    const totalMatches = leagueSize * 2;
+    const fantasyProgress = schedule.flat().filter((match) => match.played && match.result).length;
+    const realTeamCount = Math.max(standings.length, Object.keys(teams).length + cpuTeams.length, 1);
+    const totalMatches =
+      settings.leagueType === "Fantasia" ? realTeamCount * Math.max(realTeamCount - 1, 0) : realTeamCount * 40;
+    const progress =
+      settings.leagueType === "Fantasia"
+        ? fantasyProgress
+        : standings.reduce((sum, team) => sum + Number(team.played || 0), 0);
     const halfSeasonMatch = Math.floor(totalMatches / 2);
-    const windowOpen = phase === "market" || leagueMatchCount === 0 || leagueMatchCount >= halfSeasonMatch;
+    const windowOpen =
+      !regularSeasonComplete && (phase === "market" || progress === 0 || progress >= halfSeasonMatch);
     const trimmedSearch = search.trim();
 
     if (!windowOpen) {
@@ -1008,7 +1026,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     }, 250);
 
     return () => window.clearTimeout(timeout);
-  }, [search, phase, leagueMatchCount, settings.format]);
+  }, [search, phase, leagueMatchCount, settings.format, settings.leagueType, schedule, standings, cpuTeams.length, regularSeasonComplete]);
 
   useEffect(() => {
     if (pool.length === 0 || auctionOptions.length > 0) return;
@@ -1140,11 +1158,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const totalSeasonMatches =
     settings.leagueType === "Fantasia"
       ? displayStandings.length * Math.max(displayStandings.length - 1, 0)
-      : leagueTeams.length * 2;
+      : displayStandings.length * 40;
   const matchesPerClub =
     settings.leagueType === "Fantasia"
       ? Math.max(displayStandings.length - 1, 0) * 2
-      : Math.max(1, Math.round(totalSeasonMatches / Math.max(leagueTeams.length, 1)));
+      : 40;
   const currentClubStanding = displayStandings.find((team) => team.key === currentUser);
   const currentClubMatchCount = currentClubStanding?.played || 0;
   const globalLeagueMatchCount = settings.leagueType === "Fantasia"
@@ -1152,10 +1170,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         .flat()
         .filter((match) => match.played && match.result)
         .length
-    : leagueMatchCount;
+    : displayStandings.reduce((sum, team) => sum + Number(team.played || 0), 0);
   const midSeasonMatch = Math.floor(totalSeasonMatches / 2);
   const transferWindowOpen =
-    phase === "market" || globalLeagueMatchCount === 0 || globalLeagueMatchCount >= midSeasonMatch;
+    !regularSeasonComplete &&
+    (phase === "market" || globalLeagueMatchCount === 0 || globalLeagueMatchCount >= midSeasonMatch);
   const playerOwners = new Map<number, string>();
   Object.values(teams).forEach((team) => {
     team.squad.forEach((player) => playerOwners.set(player.ID, team.owner));
@@ -2241,9 +2260,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       <h2>Noticias de la liga</h2>
       <p>
         Liga {leagueCode} |{" "}
-        {isOrganizer
-          ? `Partidos liga ${globalLeagueMatchCount}/${totalSeasonMatches} | Restan ${Math.max(totalSeasonMatches - globalLeagueMatchCount, 0)}`
-          : `${currentTeam?.name || currentUser} ${currentClubMatchCount}/${matchesPerClub} partidos`}
+        {regularSeasonComplete
+          ? "Liga regular finalizada | Solo sigue la liguilla"
+          : isOrganizer
+            ? `Partidos clubes ${globalLeagueMatchCount}/${totalSeasonMatches} | Restan ${Math.max(totalSeasonMatches - globalLeagueMatchCount, 0)}`
+            : `${currentTeam?.name || currentUser} ${currentClubMatchCount}/${matchesPerClub} partidos`}
       </p>
 
       {serverPhase === "dashboard" && (
@@ -2645,12 +2666,20 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
           <p>
             {phase === "auction"
                 ? "El organizador controla el paso entre etapas y la calidad ahora esta mas repartida."
+              : regularSeasonComplete
+                ? "La liga regular ya termino. En este momento solo queda jugar la liguilla."
               : transferWindowOpen
                 ? `Ventana de mercado disponible | No puedes pasar de ${TEAM_SIZE_TARGET} jugadores ni de ${salary(settings.salaryCap)} por temporada`
                 : `Mercado cerrado hasta la mitad de temporada (${midSeasonMatch})`}
           </p>
         </div>
       </div>
+
+      {regularSeasonComplete && phase !== "auction" && phase !== "market" && (
+        <div className="draft-empty-state">
+          La temporada regular ya se cerro. Terminen la liguilla para reiniciar subastas y transferencias.
+        </div>
+      )}
 
       {myPendingSignings.length > 0 && (
         <div className="offers-panel">
@@ -2862,7 +2891,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         </>
       )}
 
-      {phase !== "auction" && phase !== "market" && !transferWindowOpen && (
+      {phase !== "auction" && phase !== "market" && !transferWindowOpen && !regularSeasonComplete && (
         <div className="draft-empty-state">
           El mercado se abre al inicio y en la mitad de temporada.
         </div>
@@ -2877,6 +2906,17 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     return renderTransfer();
   };
 
+  const handleToolbarBack = () => {
+    if (showInbox) {
+      setShowInbox(false);
+      return;
+    }
+
+    if (activeTab !== "Inicio") {
+      setActiveTab("Inicio");
+    }
+  };
+
   if (serverPhase === "selection") {
     return renderSelection();
   }
@@ -2884,11 +2924,14 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   return (
     <main className="draft-shell">
       <header className="draft-topbar">
-        <div>
+        <div className="draft-heading">
           <span className="form-kicker">Draft en vivo</span>
           <h1>Ultimate Fantasy League</h1>
         </div>
         <div className="draft-toolbar">
+          <button className="toolbar-back" onClick={handleToolbarBack}>
+            Atras
+          </button>
           <button className="small-action inbox-btn" onClick={() => setShowInbox(true)}>
             Buzon
             {myInbox.length > 0 && <span className="notif-dot toolbar-dot"></span>}

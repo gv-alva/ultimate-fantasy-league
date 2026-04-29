@@ -15,11 +15,12 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.803";
+const SERVER_VERSION = "v0.900";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
 const RANDOM_EVENT_PROBABILITY = 0.2;
+const REAL_MATCHES_PER_CLUB = 40;
 const DEFAULT_LEAGUE_PRIZE = 20;
 const DEFAULT_PLAYOFF_PRIZES = {
   first: 25,
@@ -340,12 +341,33 @@ const getLeagueRegularSeasonTotals = (lobby, draft) => {
     };
   }
 
-  const realTeamCount = Math.max((lobby?.players || []).length, 1);
-  const totalMatches = getLeagueSize(lobby?.format) * 2;
+  const realTeamCount = Math.max(
+    (draft?.standings || []).length,
+    (draft?.cpuTeams || []).length + (lobby?.players || []).length,
+    getLeagueSize(lobby?.format),
+    1
+  );
+  const totalMatches = Math.floor((realTeamCount * REAL_MATCHES_PER_CLUB) / 2);
   return {
     totalMatches,
-    matchesPerClub: Math.max(1, Math.round(totalMatches / realTeamCount)),
+    matchesPerClub: REAL_MATCHES_PER_CLUB,
   };
+};
+
+const isRegularSeasonComplete = (draft, lobby) => {
+  const { matchesPerClub, totalMatches } = getLeagueRegularSeasonTotals(lobby, draft);
+
+  if (lobby?.leagueType === "Fantasia") {
+    const playedMatches = (draft?.schedule || [])
+      .flat()
+      .filter((match) => match.played && match.result)
+      .length;
+    return playedMatches >= totalMatches;
+  }
+
+  const standings = draft?.standings || [];
+  if (standings.length === 0) return false;
+  return standings.every((team) => Number(team.played || 0) >= matchesPerClub);
 };
 
 const getLobbyPrizeConfig = (lobby = {}) => ({
@@ -670,6 +692,7 @@ const appendSeasonWinnerIfNeeded = (draft, lobby, code) => {
   const winner = sortStandings(draft.standings)[0];
   if (!winner) return;
 
+  draft.regularSeasonComplete = true;
   draft.seasonWinnerAnnounced = true;
   awardLeaguePrizeIfNeeded(draft, lobby, code);
   addNews(draft, code, `Liga UFL: ${winner.name} es campeon de la temporada`);
@@ -800,6 +823,7 @@ const resetLeagueForNewSeason = (draft, lobby) => {
   draft.blockedNegotiations = {};
   draft.transferWindowId = Number(draft.transferWindowId || 0) + 1;
   draft.leagueMatchCount = 0;
+  draft.regularSeasonComplete = false;
   draft.visibleRoundStart = 1;
   draft.seasonWinnerAnnounced = false;
   draft.seasonLeaguePrizePaid = false;
@@ -1451,6 +1475,7 @@ const getDraftPayload = (code) => {
     pendingSignings: (draft.pendingSignings || []).map(getPendingSigningPayload),
     news: getNewsPayload(draft, code),
     leagueMatchCount: draft.leagueMatchCount || 0,
+    regularSeasonComplete: Boolean(draft.regularSeasonComplete),
     inbox: draft.inbox || {},
     standings: draft.standings || [],
     schedule: draft.schedule || [],
@@ -1517,6 +1542,7 @@ const ensureDraft = (code) => {
       bidCounts: {},
       transferWindowId: 0,
       leagueMatchCount: 0,
+      regularSeasonComplete: false,
       randomEvents: lobby.randomEvents !== false,
       teams,
       cpuTeams: [],
@@ -2568,6 +2594,7 @@ app.post("/drafts/:code/start-season", (req, res) => {
   });
 
   draft.phase = "season";
+  draft.regularSeasonComplete = false;
   draft.seasonWinnerAnnounced = false;
   addNews(draft, code, "Liga UFL: el periodo de transferencias termino y la liga comenzo.");
   sendDraftUpdate(code);
@@ -2705,9 +2732,7 @@ app.post("/drafts/:code/results", (req, res) => {
 
   maybeAdvanceFantasyRoundBlock(draft, lobby, code);
 
-  const { totalMatches } = getLeagueRegularSeasonTotals(lobby, draft);
-
-  if (draft.leagueMatchCount >= totalMatches) {
+  if (isRegularSeasonComplete(draft, lobby)) {
     appendSeasonWinnerIfNeeded(draft, lobby, code);
   }
 
@@ -2759,9 +2784,7 @@ app.post("/drafts/:code/cpu-result", (req, res) => {
   draft.leagueMatchCount = Number(draft.leagueMatchCount || 0) + 1;
   syncUnavailablePlayers(draft);
   maybeTriggerRandomEvent(code, draft);
-  const { totalMatches } = getLeagueRegularSeasonTotals(lobby, draft);
-
-  if (draft.leagueMatchCount >= totalMatches) {
+  if (isRegularSeasonComplete(draft, lobby)) {
     appendSeasonWinnerIfNeeded(draft, lobby, code);
   }
 
@@ -2829,6 +2852,9 @@ app.post("/drafts/:code/edit-standing", (req, res) => {
   standing.ga = Number(ga) || 0;
   standing.pts = Number(pts) || 0;
   draft.standings = sortStandings(draft.standings);
+  if (isRegularSeasonComplete(draft, lobby)) {
+    appendSeasonWinnerIfNeeded(draft, lobby, code);
+  }
   addNews(draft, code, `Liga UFL: el organizador edito la tabla de ${standing.name}`);
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));

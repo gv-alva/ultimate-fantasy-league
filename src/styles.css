@@ -358,6 +358,10 @@ body {
   margin: 0 auto 18px;
 }
 
+.draft-heading {
+  min-width: 0;
+}
+
 .draft-topbar h1 {
   margin: 0;
   font-size: 28px;
@@ -368,19 +372,42 @@ body {
   position: static;
   width: auto;
   white-space: nowrap;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  background: rgba(15, 23, 42, 0.92);
 }
 
 .draft-toolbar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.toolbar-back {
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  background: rgba(15, 23, 42, 0.88);
+  color: #e2e8f0;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .inbox-btn {
   position: relative;
   width: auto;
-  min-height: 42px;
-  padding: 0 16px;
+  min-width: 132px;
+  min-height: 46px;
+  padding: 0 18px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #facc15 0%, #eab308 100%);
+  color: #02040a;
+  box-shadow: 0 12px 26px rgba(234, 179, 8, 0.2);
 }
 
 .toolbar-dot {
@@ -404,29 +431,35 @@ body {
   width: min(680px, calc(100% - 28px));
   transform: translateX(-50%);
   margin: 0;
-  padding: 8px;
+  padding: 10px;
   border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 20px;
-  background: rgba(6, 11, 23, 0.94);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(10, 16, 30, 0.98) 0%, rgba(5, 8, 18, 0.96) 100%);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.48);
   backdrop-filter: blur(14px);
 }
 
 .draft-tabs button {
-  min-height: 44px;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 12px;
-  background: #060b17;
+  min-height: 48px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #08111f 0%, #060b17 100%);
   color: #cbd5e1;
   font-weight: bold;
   cursor: pointer;
   position: relative;
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
 }
 
 .draft-tabs button.active {
-  background: #eab308;
-  border-color: #eab308;
+  background: linear-gradient(135deg, #facc15 0%, #eab308 100%);
+  border-color: rgba(250, 204, 21, 0.95);
   color: #02040a;
+  box-shadow: 0 10px 22px rgba(234, 179, 8, 0.2);
+}
+
+.draft-tabs button:hover {
+  transform: translateY(-1px);
 }
 
 .draft-panel {
@@ -1022,8 +1055,8 @@ body {
 }
 
 .table-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 16px;
 }
@@ -1275,8 +1308,7 @@ body {
 
   .draft-toolbar {
     width: 100%;
-    justify-content: space-between;
-    flex-wrap: wrap;
+    justify-content: stretch;
   }
 
   .draft-tabs {
@@ -1289,12 +1321,21 @@ body {
 
   .draft-tabs.bottom-tabs button {
     font-size: 11px;
-    min-height: 42px;
-    padding: 4px;
+    min-height: 46px;
+    padding: 6px 4px;
   }
 
-  .draft-logout,
-  .inbox-btn,
+  .draft-toolbar .small-action,
+  .draft-toolbar .toolbar-back {
+    width: auto;
+    flex: 1 1 0;
+  }
+
+  .draft-logout {
+    width: auto;
+    flex: 0 0 auto;
+  }
+
   .compact-btn,
   .small-action {
     width: 100%;
@@ -1354,8 +1395,31 @@ body {
   .continue-actions,
   .offer-actions,
   .form-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     flex-direction: column;
+  }
+
+  .league-row.rich {
+    padding: 16px;
+  }
+
+  .league-main strong {
+    font-size: 22px;
+    line-height: 1.15;
+  }
+
+  .league-main em {
+    display: inline-flex;
+    align-self: flex-start;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.7);
+  }
+
+  .league-stats-grid small,
+  .club-summary-stats small {
+    justify-content: space-between;
+    padding: 10px 12px;
   }
 
   .player-modal {
