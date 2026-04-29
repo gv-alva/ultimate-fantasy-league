@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.802";
+const SERVER_VERSION = "v0.803";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -318,6 +318,16 @@ const createSponsor = (index = 0) => {
   return {
     name: preset.name,
     values: { ...preset.values },
+  };
+};
+
+const getRandomSponsor = (currentName = "") => {
+  const options = sponsorPresets.filter((preset) => preset.name !== currentName);
+  const pool = options.length > 0 ? options : sponsorPresets;
+  const picked = pool[Math.floor(Math.random() * pool.length)] || sponsorPresets[0];
+  return {
+    name: picked.name,
+    values: { ...picked.values },
   };
 };
 
@@ -805,6 +815,10 @@ const resetLeagueForNewSeason = (draft, lobby) => {
     ga: 0,
     pts: 0,
   }));
+
+  Object.values(draft.teams || {}).forEach((team) => {
+    team.sponsorChangedThisSeason = false;
+  });
 
   if (lobby?.leagueType === "Fantasia") {
     draft.schedule = (draft.schedule || []).map((roundMatches) =>
@@ -1487,6 +1501,7 @@ const ensureDraft = (code) => {
         budget: lobby.money,
         salaryCap: lobby.salaryCap,
         sponsor: createSponsor(ownerIndex),
+        sponsorChangedThisSeason: false,
         protectedPlayerIds: [],
         squad: [],
       };
@@ -1529,6 +1544,9 @@ const ensureDraft = (code) => {
     const team = drafts.get(code)?.teams?.[owner];
     if (team && !team.sponsor) {
       team.sponsor = createSponsor(ownerIndex);
+    }
+    if (team && typeof team.sponsorChangedThisSeason !== "boolean") {
+      team.sponsorChangedThisSeason = false;
     }
   });
 
@@ -2268,6 +2286,38 @@ app.post("/drafts/:code/train", (req, res) => {
   addFaunaComment(draft, code, "training", { player: player.Name, winner: team.name });
   sendDraftUpdate(code);
   res.json({ playerName: player.Name, nextOverall, ...getDraftPayload(code) });
+});
+
+app.post("/drafts/:code/change-sponsor", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username } = req.body;
+  const draft = ensureDraft(code);
+
+  if (!draft) {
+    return res.status(404).json({ error: "Draft no encontrado" });
+  }
+
+  const team = draft.teams[username];
+  if (!team) {
+    return res.status(404).json({ error: "Club no encontrado" });
+  }
+
+  if (team.sponsorChangedThisSeason) {
+    return res.status(400).json({ error: "Ya cambiaste patrocinador esta temporada" });
+  }
+
+  const previousSponsor = team.sponsor?.name || "";
+  team.sponsor = getRandomSponsor(previousSponsor);
+  team.sponsorChangedThisSeason = true;
+
+  addNews(
+    draft,
+    code,
+    `Liga UFL: ${team.name} cambio de patrocinador. Sale ${previousSponsor || "anterior"} y entra ${team.sponsor.name}`
+  );
+  addFaunaComment(draft, code, "transfer", { winner: team.name, player: team.sponsor.name });
+  sendDraftUpdate(code);
+  res.json(getDraftPayload(code));
 });
 
 app.post("/drafts/:code/offers", (req, res) => {

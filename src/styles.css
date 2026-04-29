@@ -714,6 +714,12 @@ body {
   margin: 0 0 12px;
 }
 
+.sponsor-note {
+  margin: 0 0 14px;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
 .sponsor-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

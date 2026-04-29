@@ -49,6 +49,7 @@ type TeamState = {
   salaryUsed?: number;
   protectedPlayerIds?: number[];
   sponsor?: Sponsor;
+  sponsorChangedThisSeason?: boolean;
   squad: Player[];
 };
 
@@ -689,6 +690,7 @@ const decorateTeams = (
         currentTeam?.squad?.reduce((sum, player) => sum + (Number(player.salary) || 0), 0) ??
         0,
       sponsor: currentTeam?.sponsor || createSponsor(owner, ownerIndex),
+      sponsorChangedThisSeason: currentTeam?.sponsorChangedThisSeason ?? false,
       squad: currentTeam?.squad || [],
       protectedPlayerIds: currentTeam?.protectedPlayerIds || [],
     };
@@ -2077,6 +2079,35 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setClubFeedMessage("");
   };
 
+  const changeSponsor = async () => {
+    const confirmed = window.confirm(
+      "El cambio de patrocinador es aleatorio y solo se puede hacer una vez por temporada. ¿Quieres continuar?"
+    );
+    if (!confirmed) return;
+
+    const response = await fetch(`${API_URL}/drafts/${leagueCode}/change-sponsor`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      alert(errorData?.error || "No se pudo cambiar el patrocinador");
+      return;
+    }
+
+    const payload = (await response.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
+    }
+    alert("Patrocinador cambiado. Este movimiento ya no se puede repetir hasta la siguiente temporada.");
+  };
+
   const canManageQuickMatch = (match: QuickTournamentMatch) =>
     isOrganizer || match.homeKey === currentUser || match.awayKey === currentUser;
 
@@ -2116,6 +2147,9 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     currentTeam?.sponsor && (
       <div className="sponsor-card">
         <h3>Patrocinador: {currentTeam.sponsor.name}</h3>
+        <p className="sponsor-note">
+          Puedes cambiar patrocinador una sola vez por temporada y el cambio sera aleatorio.
+        </p>
         <div className="sponsor-grid">
           {Object.entries(currentTeam.sponsor.values).map(([category, value]) => (
             <div key={category}>
@@ -2124,6 +2158,13 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
             </div>
           ))}
         </div>
+        <button
+          className={`small-action ${currentTeam.sponsorChangedThisSeason ? "muted" : ""}`}
+          disabled={Boolean(currentTeam.sponsorChangedThisSeason)}
+          onClick={changeSponsor}
+        >
+          {currentTeam.sponsorChangedThisSeason ? "CAMBIO USADO ESTA TEMPORADA" : "CAMBIAR PATROCINADOR"}
+        </button>
       </div>
     )
   );
