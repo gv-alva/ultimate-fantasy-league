@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import faunaAvatar from "./assets/fauna-avatar.svg";
-import romanoAvatar from "./assets/romano-avatar.svg";
+import faunaAvatar from "./assets/fauna.webp";
+import romanoAvatar from "./assets/romano.jpg";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
 const TEAM_SIZE_TARGET = 20;
@@ -160,6 +160,7 @@ type DraftEvent = {
   cpuTeams: CpuTeam[];
   visibleRoundStart: number;
   playoff?: PlayoffState | null;
+  quickTournament?: QuickTournamentState | null;
 };
 
 type NewsEntry = {
@@ -186,6 +187,31 @@ type PlayoffState = {
   semifinal1: PlayoffMatch;
   semifinal2: PlayoffMatch;
   final: PlayoffMatch;
+  championKey?: string;
+};
+
+type QuickTournamentMatch = {
+  id: string;
+  homeKey: string;
+  awayKey: string;
+  homeName: string;
+  awayName: string;
+  played: boolean;
+  result?: {
+    homeGoals: number;
+    awayGoals: number;
+  } | null;
+  winnerKey?: string;
+};
+
+type QuickTournamentRound = {
+  name: string;
+  matches: QuickTournamentMatch[];
+};
+
+type QuickTournamentState = {
+  active: boolean;
+  rounds: QuickTournamentRound[];
   championKey?: string;
 };
 
@@ -677,10 +703,13 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [cpuPointsB, setCpuPointsB] = useState("0");
   const [schedule, setSchedule] = useState<ScheduleMatch[][]>([]);
   const [cpuTeams, setCpuTeams] = useState<CpuTeam[]>([]);
-  const [tableView, setTableView] = useState<"tabla" | "partidos" | "clubes" | "liguilla">("tabla");
+  const [tableView, setTableView] = useState<"tabla" | "partidos" | "clubes" | "liguilla" | "torneo">("tabla");
   const [visibleRoundStart, setVisibleRoundStart] = useState(1);
   const [selectedLeagueClub, setSelectedLeagueClub] = useState("");
   const [playoff, setPlayoff] = useState<PlayoffState | null>(null);
+  const [quickTournament, setQuickTournament] = useState<QuickTournamentState | null>(null);
+  const [showQuickTournamentForm, setShowQuickTournamentForm] = useState(false);
+  const [selectedQuickTeams, setSelectedQuickTeams] = useState<string[]>([]);
   const [editStandingKey, setEditStandingKey] = useState("");
   const [editPlayed, setEditPlayed] = useState("0");
   const [editWins, setEditWins] = useState("0");
@@ -728,6 +757,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setCpuTeams(draft.cpuTeams || []);
     setVisibleRoundStart(draft.visibleRoundStart || 1);
     setPlayoff(draft.playoff || null);
+    setQuickTournament(draft.quickTournament || null);
 
     if (draft.phase === "dashboard") {
       setPhase("initial");
@@ -770,6 +800,9 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setShowCpuRenameForm(false);
     setShowStandingEditForm(false);
     setPlayoff(null);
+    setQuickTournament(null);
+    setShowQuickTournamentForm(false);
+    setSelectedQuickTeams([]);
   }, [leagueCode]);
 
   useEffect(() => {
@@ -1885,6 +1918,72 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     }
   };
 
+  const toggleQuickTournamentTeam = (teamKey: string) => {
+    setSelectedQuickTeams((current) =>
+      current.includes(teamKey) ? current.filter((item) => item !== teamKey) : [...current, teamKey]
+    );
+  };
+
+  const createQuickTournament = async () => {
+    const response = await fetch(`${API_URL}/drafts/${leagueCode}/quick-tournament`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+        teamKeys: selectedQuickTeams,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      alert(errorData?.error || "No se pudo crear torneo rapido");
+      return;
+    }
+
+    const payload = (await response.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
+    }
+    setShowQuickTournamentForm(false);
+  };
+
+  const submitQuickTournamentResult = async (roundIndex: number, matchId: string, homeName: string, awayName: string) => {
+    const homeGoalsText = window.prompt(`Goles de ${homeName}:`, "1");
+    if (homeGoalsText === null) return;
+    const awayGoalsText = window.prompt(`Goles de ${awayName}:`, "0");
+    if (awayGoalsText === null) return;
+
+    const response = await fetch(`${API_URL}/drafts/${leagueCode}/quick-tournament-result`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+        roundIndex,
+        matchId,
+        homeGoals: Number(homeGoalsText) || 0,
+        awayGoals: Number(awayGoalsText) || 0,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      alert(errorData?.error || "No se pudo guardar el resultado del torneo rapido");
+      return;
+    }
+
+    const payload = (await response.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
+    }
+  };
+
+  const canManageQuickMatch = (match: QuickTournamentMatch) =>
+    isOrganizer || match.homeKey === currentUser || match.awayKey === currentUser;
+
   const renderPlayerCard = (player: Player, action?: ReactNode) => (
     <article className={`mini-player-card ${isProtectedPlayer(playerOwners.get(player.ID), player.ID) ? "protected" : ""}`} key={player.ID} onClick={() => setSelectedPlayer(player)}>
       {player.card && <img src={player.card} alt={player.Name} />}
@@ -2143,6 +2242,12 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         >
           LIGUILLA
         </button>
+        <button
+          className={`btn ${tableView === "torneo" ? "btn-login" : "btn-outline"} compact-btn`}
+          onClick={() => setTableView("torneo")}
+        >
+          TORNEO RAPIDO
+        </button>
         {settings.leagueType === "Fantasia" && (
           <button
             className={`btn ${tableView === "partidos" ? "btn-login" : "btn-outline"} compact-btn`}
@@ -2273,6 +2378,57 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                   </button>
                 )}
               </div>
+            </>
+          )}
+        </div>
+      ) : tableView === "torneo" ? (
+        <div className="playoff-grid">
+          {!quickTournament?.active ? (
+            isOrganizer ? (
+              <>
+                <div className="draft-list-item">
+                  <strong>Crear torneo rapido</strong>
+                  <p>Selecciona clubes reales, el orden sera aleatorio y se rellenara con CPU si hace falta.</p>
+                </div>
+                <button className="btn btn-login compact-btn" onClick={() => setShowQuickTournamentForm(true)}>
+                  CREAR TORNEO RAPIDO
+                </button>
+              </>
+            ) : (
+              <div className="draft-empty-state">Por el momento no hay torneo rapido.</div>
+            )
+          ) : (
+            <>
+              {quickTournament.rounds.map((round, roundIndex) => (
+                <div key={`quick-round-${round.name}`} className="draft-list-item current-round">
+                  <strong>{round.name}</strong>
+                  <div className="schedule-round">
+                    {round.matches.map((match) => (
+                      <div key={match.id} className="draft-list-item">
+                        <p>{match.homeName || "Pendiente"} vs {match.awayName || "Pendiente"}</p>
+                        {match.result ? (
+                          <small>
+                            {match.result.homeGoals}-{match.result.awayGoals} | Gana {match.result.homeGoals > match.result.awayGoals ? match.homeName : match.awayName}
+                          </small>
+                        ) : (
+                          <small>Pendiente</small>
+                        )}
+                        {match.homeKey && match.awayKey && canManageQuickMatch(match) && !match.played && (
+                          <button className="small-action" onClick={() => submitQuickTournamentResult(roundIndex, match.id, match.homeName, match.awayName)}>
+                            AGREGAR RESULTADO
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {quickTournament.championKey && (
+                <div className="draft-list-item">
+                  <strong>Campeon</strong>
+                  <p>{displayStandings.find((team) => team.key === quickTournament.championKey)?.name || quickTournament.championKey}</p>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -2814,6 +2970,31 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                 </article>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {showQuickTournamentForm && (
+        <div className="player-modal" onClick={() => setShowQuickTournamentForm(false)}>
+          <div className="player-modal-card" onClick={(event) => event.stopPropagation()}>
+            <button className="modal-close" onClick={() => setShowQuickTournamentForm(false)}>Cerrar</button>
+            <h2>Crear torneo rapido</h2>
+            <div className="offers-panel">
+              {realLeagueClubs.map((team) => (
+                <article key={`quick-team-${team.key}`} className="offer-card">
+                  <strong>{team.name}</strong>
+                  <div className="offer-actions">
+                    <button
+                      className={`small-action ${selectedQuickTeams.includes(team.key) ? "protected-action" : ""}`}
+                      onClick={() => toggleQuickTournamentTeam(team.key)}
+                    >
+                      {selectedQuickTeams.includes(team.key) ? "Seleccionado" : "Elegir"}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <button className="btn btn-login" onClick={createQuickTournament}>CREAR</button>
           </div>
         </div>
       )}

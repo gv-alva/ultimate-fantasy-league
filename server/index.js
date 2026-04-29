@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.714";
+const SERVER_VERSION = "v0.715";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -644,6 +644,114 @@ const resetLeagueForNewSeason = (draft, lobby) => {
   }
 };
 
+const QUICK_TOURNAMENT_ROUND_NAMES = {
+  2: "Final",
+  4: "Semifinales",
+  8: "Cuartos",
+  16: "Octavos",
+};
+
+const nextPowerOfTwo = (value) => {
+  let size = 1;
+  while (size < value) size *= 2;
+  return size;
+};
+
+const shuffleList = (items = [], seed = Date.now()) => {
+  const list = [...items];
+  let currentSeed = Number(seed) || 1;
+  for (let index = list.length - 1; index > 0; index -= 1) {
+    currentSeed = (currentSeed * 1664525 + 1013904223) >>> 0;
+    const swapIndex = currentSeed % (index + 1);
+    [list[index], list[swapIndex]] = [list[swapIndex], list[index]];
+  }
+  return list;
+};
+
+const createQuickTournament = (draft, selectedTeams = []) => {
+  const bracketSize = Math.max(2, nextPowerOfTwo(selectedTeams.length));
+  const participants = [...selectedTeams];
+  while (participants.length < bracketSize) {
+    const cpuIndex = participants.length - selectedTeams.length + 1;
+    participants.push({
+      key: `quick-cpu-${cpuIndex}`,
+      name: `CPU ${cpuIndex}`,
+      real: false,
+    });
+  }
+
+  const shuffledParticipants = shuffleList(participants, `${Date.now()}${selectedTeams.map((team) => team.key).join("")}`.length);
+  const rounds = [];
+  let currentParticipants = shuffledParticipants;
+  let roundSize = bracketSize;
+  let roundIndex = 0;
+
+  while (roundSize >= 2) {
+    const roundName = QUICK_TOURNAMENT_ROUND_NAMES[roundSize] || `Ronda ${roundIndex + 1}`;
+    const matches = [];
+
+    for (let index = 0; index < currentParticipants.length; index += 2) {
+      const home = currentParticipants[index];
+      const away = currentParticipants[index + 1];
+      matches.push({
+        id: `quick-${roundIndex + 1}-${index / 2 + 1}-${Date.now()}`,
+        homeKey: home?.key || "",
+        awayKey: away?.key || "",
+        homeName: home?.name || "",
+        awayName: away?.name || "",
+        played: false,
+        result: null,
+        winnerKey: "",
+      });
+    }
+
+    rounds.push({ name: roundName, matches });
+    currentParticipants = Array.from({ length: matches.length / 2 }, (_, index) => ({
+      key: `winner-${roundIndex + 1}-${index + 1}`,
+      name: "Pendiente",
+      real: false,
+    }));
+    roundSize /= 2;
+    roundIndex += 1;
+  }
+
+  draft.quickTournament = {
+    active: true,
+    rounds,
+    championKey: "",
+  };
+};
+
+const progressQuickTournament = (draft) => {
+  if (!draft.quickTournament?.rounds?.length) return;
+
+  const rounds = draft.quickTournament.rounds;
+  for (let roundIndex = 0; roundIndex < rounds.length - 1; roundIndex += 1) {
+    const currentRound = rounds[roundIndex];
+    const nextRound = rounds[roundIndex + 1];
+    if (!currentRound.matches.every((match) => match.played && match.winnerKey)) {
+      break;
+    }
+
+    nextRound.matches = nextRound.matches.map((match, matchIndex) => {
+      const homeWinner = currentRound.matches[matchIndex * 2];
+      const awayWinner = currentRound.matches[matchIndex * 2 + 1];
+      return {
+        ...match,
+        homeKey: homeWinner?.winnerKey || "",
+        awayKey: awayWinner?.winnerKey || "",
+        homeName: getTeamNameByKey(draft, homeWinner?.winnerKey || ""),
+        awayName: getTeamNameByKey(draft, awayWinner?.winnerKey || ""),
+      };
+    });
+  }
+
+  const finalRound = rounds[rounds.length - 1];
+  if (finalRound?.matches?.[0]?.played && finalRound.matches[0].winnerKey) {
+    draft.quickTournament.championKey = finalRound.matches[0].winnerKey;
+  }
+};
+
 const buildFantasySchedule = (teamKeys = []) => {
   const workingKeys = [...teamKeys];
   const isOdd = workingKeys.length % 2 !== 0;
@@ -1155,6 +1263,7 @@ const getDraftPayload = (code) => {
     cpuTeams: draft.cpuTeams || [],
     visibleRoundStart: getVisibleRoundStart(draft),
     playoff: draft.playoff || null,
+    quickTournament: draft.quickTournament || null,
   };
 };
 
@@ -1225,6 +1334,7 @@ const ensureDraft = (code) => {
       standings: [],
       schedule: [],
       playoff: null,
+      quickTournament: null,
       visibleRoundStart: 1,
       seasonWinnerAnnounced: false,
       news: [{ code, text: "Seleccion principal iniciada", createdAt: Date.now() }],
@@ -2280,7 +2390,7 @@ app.post("/drafts/:code/results", (req, res) => {
 
   draft.leagueMatchCount = Number(draft.leagueMatchCount || 0) + 1;
   const mySponsorIncome = applySponsorIncome(currentTeam, scoreA, scoreB, Number(teamCards) || 0);
-  const opponentManagedTeam = opponentTeam ? draft.teams[opponentTeam.owner] : null;
+  const opponentManagedTeam = Object.values(draft.teams).find((team) => team.name === opponentName) || null;
   const opponentSponsorIncome = opponentManagedTeam
     ? applySponsorIncome(opponentManagedTeam, scoreB, scoreA, Number(opponentCards) || 0)
     : 0;
@@ -2525,6 +2635,71 @@ app.post("/drafts/:code/finish-playoff", (req, res) => {
 
   resetLeagueForNewSeason(draft, lobby);
   addNews(draft, code, "Liga UFL: termino la liguilla y se reinicio el sistema de subastas y transferencias");
+  sendDraftUpdate(code);
+  res.json(getDraftPayload(code));
+});
+
+app.post("/drafts/:code/quick-tournament", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username, teamKeys = [] } = req.body;
+  const draft = ensureDraft(code);
+  const lobby = lobbies.get(code);
+
+  if (!draft || !lobby) {
+    return res.status(404).json({ error: "Draft no encontrado" });
+  }
+
+  if (lobby.creator !== username) {
+    return res.status(403).json({ error: "Solo el organizador puede crear torneo rapido" });
+  }
+
+  const selectedTeams = (draft.standings || []).filter((team) => team.real && teamKeys.includes(team.key));
+  if (selectedTeams.length < 2) {
+    return res.status(400).json({ error: "Selecciona al menos 2 clubes reales" });
+  }
+
+  createQuickTournament(draft, selectedTeams);
+  addNews(draft, code, `Liga UFL: el organizador creo un torneo rapido con ${selectedTeams.length} clubes reales`);
+  sendDraftUpdate(code);
+  res.json(getDraftPayload(code));
+});
+
+app.post("/drafts/:code/quick-tournament-result", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username, roundIndex, matchId, homeGoals, awayGoals } = req.body;
+  const draft = ensureDraft(code);
+  const lobby = lobbies.get(code);
+
+  if (!draft || !lobby || !draft.quickTournament?.active) {
+    return res.status(404).json({ error: "Torneo rapido no encontrado" });
+  }
+
+  const round = draft.quickTournament.rounds?.[Number(roundIndex)];
+  const match = round?.matches?.find((item) => item.id === matchId);
+  if (!round || !match) {
+    return res.status(404).json({ error: "Partido no encontrado" });
+  }
+
+  const canManage =
+    lobby.creator === username ||
+    match.homeKey === username ||
+    match.awayKey === username;
+
+  if (!canManage) {
+    return res.status(403).json({ error: "No puedes registrar este resultado" });
+  }
+
+  const goalsA = Number(homeGoals);
+  const goalsB = Number(awayGoals);
+  if (!Number.isFinite(goalsA) || !Number.isFinite(goalsB) || goalsA === goalsB) {
+    return res.status(400).json({ error: "El torneo rapido no permite empates" });
+  }
+
+  match.played = true;
+  match.result = { homeGoals: goalsA, awayGoals: goalsB };
+  match.winnerKey = goalsA > goalsB ? match.homeKey : match.awayKey;
+  progressQuickTournament(draft);
+  addNews(draft, code, `Liga UFL: ${goalsA > goalsB ? match.homeName : match.awayName} avanzo en torneo rapido`);
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });
