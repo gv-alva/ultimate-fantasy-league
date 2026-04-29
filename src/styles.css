@@ -393,15 +393,15 @@ body {
   position: static;
   width: auto;
   white-space: nowrap;
-  min-height: 34px;
-  padding: 0 12px;
+  min-height: 30px;
+  padding: 0 10px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 11px;
   background: rgba(5, 10, 20, 0.74);
   border-color: rgba(250, 204, 21, 0.35);
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .draft-toolbar {
@@ -410,41 +410,28 @@ body {
   justify-content: flex-end;
   gap: 10px;
   flex-wrap: nowrap;
-  padding: 10px;
+  padding: 8px 10px;
   border-radius: 28px;
   border: 1px solid rgba(148, 163, 184, 0.16);
   background: linear-gradient(180deg, rgba(12, 19, 34, 0.94) 0%, rgba(7, 11, 21, 0.96) 100%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
-.toolbar-back {
-  min-height: 42px;
-  padding: 0 16px;
-  border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background: rgba(14, 24, 45, 0.9);
-  color: #e2e8f0;
-  font-weight: 700;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-}
-
 .inbox-btn {
   position: relative;
   width: auto;
-  min-width: 128px;
-  min-height: 44px;
-  padding: 0 18px;
+  min-width: 162px;
+  min-height: 50px;
+  padding: 0 24px;
   border-radius: 999px;
   background: linear-gradient(135deg, #facc15 0%, #f59e0b 100%);
   color: #02040a;
-  box-shadow: 0 12px 26px rgba(245, 158, 11, 0.22);
+  box-shadow: 0 14px 30px rgba(245, 158, 11, 0.24);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 12px;
+  font-size: 18px;
 }
 
 .toolbar-dot {
@@ -463,7 +450,7 @@ body {
 .draft-tabs.bottom-tabs {
   position: fixed;
   left: 50%;
-  bottom: 16px;
+  bottom: 8px;
   z-index: 12;
   width: min(680px, calc(100% - 28px));
   transform: translateX(-50%);
@@ -563,14 +550,18 @@ body {
 }
 
 .club-action-card.active {
-  background: linear-gradient(135deg, #facc15 0%, #eab308 85%);
-  color: #02040a;
-  border-color: transparent;
-  box-shadow: 0 14px 28px rgba(234, 179, 8, 0.18);
+  background: linear-gradient(135deg, rgba(28, 40, 70, 0.98) 0%, rgba(12, 20, 36, 0.98) 100%);
+  color: #f8fafc;
+  border-color: rgba(250, 204, 21, 0.72);
+  box-shadow: 0 14px 28px rgba(234, 179, 8, 0.1);
 }
 
 .club-action-card.active .league-action-icon {
-  color: #02040a;
+  color: #f8fafc;
+}
+
+.club-action-card.active .league-action-label {
+  color: #f8fafc;
 }
 
 .draft-panel {
@@ -1553,8 +1544,7 @@ body {
     padding: 6px 4px;
   }
 
-  .draft-toolbar .small-action,
-  .draft-toolbar .toolbar-back {
+  .draft-toolbar .small-action {
     width: auto;
     flex: 1 1 0;
   }

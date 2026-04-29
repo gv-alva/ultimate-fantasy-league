@@ -3,7 +3,7 @@ import faunaAvatar from "./assets/fauna.webp";
 import romanoAvatar from "./assets/romano.jpg";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
-const UI_VERSION = "0.901";
+const UI_VERSION = "0.903";
 const TEAM_SIZE_TARGET = 20;
 
 type Tab = "Inicio" | "Club" | "Liga" | "Transferencia";
@@ -3019,17 +3019,6 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     return renderTransfer();
   };
 
-  const handleToolbarBack = () => {
-    if (showInbox) {
-      setShowInbox(false);
-      return;
-    }
-
-    if (activeTab !== "Inicio") {
-      setActiveTab("Inicio");
-    }
-  };
-
   const handleShellTouchStart = (event: TouchEvent<HTMLElement>) => {
     if (showInbox || selectedPlayer || showResultForm || showQuickTournamentForm) return;
     const touch = event.changedTouches[0];
@@ -3073,10 +3062,6 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
           <span className="draft-version-badge">v{UI_VERSION}</span>
         </div>
         <div className="draft-toolbar">
-          <button className="toolbar-back" onClick={handleToolbarBack}>
-            <DraftIcon name="back" />
-            <span>Atras</span>
-          </button>
           <button className="small-action inbox-btn" onClick={() => setShowInbox(true)}>
             <DraftIcon name="inbox" />
             <span>Buzon</span>
