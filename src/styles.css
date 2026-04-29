@@ -360,6 +360,9 @@ body {
 
 .draft-heading {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .draft-topbar h1 {
@@ -368,31 +371,49 @@ body {
   line-height: 1.1;
 }
 
+.draft-version-badge {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(250, 204, 21, 0.12);
+  border: 1px solid rgba(250, 204, 21, 0.22);
+  color: #facc15;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .draft-logout {
   position: static;
   width: auto;
   white-space: nowrap;
-  min-height: 38px;
-  padding: 0 14px;
+  min-height: 34px;
+  padding: 0 12px;
   border-radius: 999px;
-  font-size: 13px;
-  background: rgba(15, 23, 42, 0.92);
+  font-size: 12px;
+  background: rgba(5, 10, 20, 0.74);
+  border-color: rgba(250, 204, 21, 0.35);
 }
 
 .draft-toolbar {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 10px;
+  flex-wrap: nowrap;
+  padding: 10px;
+  border-radius: 28px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: linear-gradient(180deg, rgba(12, 19, 34, 0.94) 0%, rgba(7, 11, 21, 0.96) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .toolbar-back {
   min-height: 42px;
-  padding: 0 14px;
+  padding: 0 16px;
   border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.26);
-  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(14, 24, 45, 0.9);
   color: #e2e8f0;
   font-weight: 700;
   cursor: pointer;
@@ -401,13 +422,13 @@ body {
 .inbox-btn {
   position: relative;
   width: auto;
-  min-width: 132px;
-  min-height: 46px;
+  min-width: 128px;
+  min-height: 44px;
   padding: 0 18px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #facc15 0%, #eab308 100%);
+  border-radius: 999px;
+  background: linear-gradient(135deg, #facc15 0%, #f59e0b 100%);
   color: #02040a;
-  box-shadow: 0 12px 26px rgba(234, 179, 8, 0.2);
+  box-shadow: 0 12px 26px rgba(245, 158, 11, 0.22);
 }
 
 .toolbar-dot {
@@ -431,35 +452,51 @@ body {
   width: min(680px, calc(100% - 28px));
   transform: translateX(-50%);
   margin: 0;
-  padding: 10px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 24px;
-  background: linear-gradient(180deg, rgba(10, 16, 30, 0.98) 0%, rgba(5, 8, 18, 0.96) 100%);
-  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.48);
-  backdrop-filter: blur(14px);
+  padding: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 26px;
+  background: linear-gradient(180deg, rgba(11, 18, 32, 0.95) 0%, rgba(7, 12, 24, 0.98) 100%);
+  box-shadow:
+    0 20px 48px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(18px);
+  overflow: hidden;
 }
 
 .draft-tabs button {
   min-height: 48px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 16px;
-  background: linear-gradient(180deg, #08111f 0%, #060b17 100%);
-  color: #cbd5e1;
-  font-weight: bold;
+  border: 0;
+  border-radius: 18px;
+  background: transparent;
+  color: #94a3b8;
+  font-weight: 700;
   cursor: pointer;
   position: relative;
-  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+  z-index: 1;
+  transition: color 0.22s ease, transform 0.18s ease;
 }
 
 .draft-tabs button.active {
-  background: linear-gradient(135deg, #facc15 0%, #eab308 100%);
-  border-color: rgba(250, 204, 21, 0.95);
   color: #02040a;
-  box-shadow: 0 10px 22px rgba(234, 179, 8, 0.2);
 }
 
 .draft-tabs button:hover {
   transform: translateY(-1px);
+}
+
+.bottom-tab-indicator {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: calc((100% - 16px) / 4);
+  height: calc(100% - 16px);
+  border-radius: 20px;
+  background: linear-gradient(135deg, #facc15 0%, #eab308 70%, #f59e0b 100%);
+  box-shadow:
+    0 10px 24px rgba(250, 204, 21, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  transform: translateX(calc(var(--active-tab, 0) * 100%));
+  transition: transform 0.28s cubic-bezier(.2,.8,.2,1);
 }
 
 .draft-panel {
@@ -1056,9 +1093,43 @@ body {
 
 .table-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 16px;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(158px, 1fr);
+  gap: 12px;
+  margin-bottom: 18px;
+  overflow-x: auto;
+  padding: 4px 2px 10px;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+
+.table-actions::-webkit-scrollbar {
+  display: none;
+}
+
+.table-actions .compact-btn {
+  min-height: 84px;
+  padding: 14px 16px;
+  border-radius: 22px;
+  scroll-snap-align: start;
+  text-align: left;
+  font-size: 18px;
+  line-height: 1.05;
+  letter-spacing: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  background: linear-gradient(180deg, rgba(10, 17, 31, 0.98) 0%, rgba(6, 11, 23, 1) 100%);
+  border: 1px solid rgba(250, 204, 21, 0.28);
+  color: #f8fafc;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.table-actions .compact-btn.btn-login {
+  background: linear-gradient(135deg, #facc15 0%, #eab308 85%);
+  color: #02040a;
+  border-color: transparent;
+  box-shadow: 0 14px 30px rgba(234, 179, 8, 0.18);
 }
 
 .clubs-view,
@@ -1308,7 +1379,9 @@ body {
 
   .draft-toolbar {
     width: 100%;
-    justify-content: stretch;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px;
   }
 
   .draft-tabs {
@@ -1397,6 +1470,16 @@ body {
   .form-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     flex-direction: column;
+  }
+
+  .table-actions {
+    grid-auto-columns: minmax(138px, 1fr);
+  }
+
+  .table-actions .compact-btn {
+    min-height: 78px;
+    padding: 14px;
+    font-size: 16px;
   }
 
   .league-row.rich {

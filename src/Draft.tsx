@@ -1,8 +1,9 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, type TouchEvent, useEffect, useMemo, useRef, useState } from "react";
 import faunaAvatar from "./assets/fauna.webp";
 import romanoAvatar from "./assets/romano.jpg";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
+const UI_VERSION = "0.901";
 const TEAM_SIZE_TARGET = 20;
 
 type Tab = "Inicio" | "Club" | "Liga" | "Transferencia";
@@ -753,6 +754,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [showStandingEditForm, setShowStandingEditForm] = useState(false);
   const previousServerPhaseRef = useRef<ServerPhase | null>(null);
   const hasHydratedFromEventsRef = useRef(false);
+  const shellTouchStartRef = useRef<{ x: number; y: number } | null>(null);
   const [clubName, setClubName] = useState("");
   const [opponentName, setOpponentName] = useState("");
   const [goalsFor, setGoalsFor] = useState("0");
@@ -1172,6 +1174,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         .length
     : displayStandings.reduce((sum, team) => sum + Number(team.played || 0), 0);
   const midSeasonMatch = Math.floor(totalSeasonMatches / 2);
+  const activeTabIndex = Math.max(0, tabs.indexOf(activeTab));
   const transferWindowOpen =
     !regularSeasonComplete &&
     (phase === "market" || globalLeagueMatchCount === 0 || globalLeagueMatchCount >= midSeasonMatch);
@@ -2917,6 +2920,36 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     }
   };
 
+  const handleShellTouchStart = (event: TouchEvent<HTMLElement>) => {
+    if (showInbox || selectedPlayer || showResultForm || showQuickTournamentForm) return;
+    const touch = event.changedTouches[0];
+    shellTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
+  };
+
+  const handleShellTouchEnd = (event: TouchEvent<HTMLElement>) => {
+    if (!shellTouchStartRef.current || showInbox || selectedPlayer || showResultForm || showQuickTournamentForm) {
+      shellTouchStartRef.current = null;
+      return;
+    }
+
+    const touch = event.changedTouches[0];
+    const deltaX = touch.clientX - shellTouchStartRef.current.x;
+    const deltaY = touch.clientY - shellTouchStartRef.current.y;
+    shellTouchStartRef.current = null;
+
+    if (Math.abs(deltaX) < 70 || Math.abs(deltaX) <= Math.abs(deltaY) * 1.2) {
+      return;
+    }
+
+    if (deltaX < 0 && activeTabIndex < tabs.length - 1) {
+      setActiveTab(tabs[activeTabIndex + 1]);
+    }
+
+    if (deltaX > 0 && activeTabIndex > 0) {
+      setActiveTab(tabs[activeTabIndex - 1]);
+    }
+  };
+
   if (serverPhase === "selection") {
     return renderSelection();
   }
@@ -2927,6 +2960,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         <div className="draft-heading">
           <span className="form-kicker">Draft en vivo</span>
           <h1>Ultimate Fantasy League</h1>
+          <span className="draft-version-badge">v{UI_VERSION}</span>
         </div>
         <div className="draft-toolbar">
           <button className="toolbar-back" onClick={handleToolbarBack}>
@@ -2942,7 +2976,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         </div>
       </header>
 
-      <nav className="draft-tabs bottom-tabs">
+      <nav
+        className="draft-tabs bottom-tabs"
+        style={{ "--active-tab": activeTabIndex } as CSSProperties}
+      >
+        <div className="bottom-tab-indicator" />
         {tabs.map((tab) => (
           <button
             key={tab}
@@ -2955,7 +2993,9 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         ))}
       </nav>
 
-      {renderPanel()}
+      <section onTouchStart={handleShellTouchStart} onTouchEnd={handleShellTouchEnd}>
+        {renderPanel()}
+      </section>
 
       {showResultForm && (
         <div className="player-modal" onClick={() => setShowResultForm(false)}>
