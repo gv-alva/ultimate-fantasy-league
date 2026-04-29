@@ -3,7 +3,7 @@ import faunaAvatar from "./assets/fauna.webp";
 import romanoAvatar from "./assets/romano.jpg";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
-const UI_VERSION = "0.903";
+const UI_VERSION = "0.905";
 const TEAM_SIZE_TARGET = 20;
 
 type Tab = "Inicio" | "Club" | "Liga" | "Transferencia";
@@ -2462,11 +2462,26 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const renderClub = () => (
     <section className="draft-panel">
       <h2>Club</h2>
-      <p>
-        {currentTeam?.name || currentUser} | Presupuesto: {money(currentTeam?.budget || 0)} | Masa salarial:{" "}
-        {salary(currentPayroll)}/{salary(currentTeam?.salaryCap || settings.salaryCap)} | Plantilla:{" "}
-        {currentTeam?.squad.length || 0}/{TEAM_SIZE_TARGET}
-      </p>
+      <div className="club-summary-bar">
+        <div className="club-summary-item club-summary-name">
+          <span>Club</span>
+          <strong>{currentTeam?.name || currentUser}</strong>
+        </div>
+        <div className="club-summary-item">
+          <span>Presupuesto</span>
+          <strong className="money-positive">{money(currentTeam?.budget || 0)}</strong>
+        </div>
+        <div className="club-summary-item">
+          <span>Masa salarial</span>
+          <strong className="money-positive">
+            {salary(currentPayroll)}/{salary(currentTeam?.salaryCap || settings.salaryCap)}
+          </strong>
+        </div>
+        <div className="club-summary-item">
+          <span>Plantilla</span>
+          <strong>{currentTeam?.squad.length || 0}/{TEAM_SIZE_TARGET}</strong>
+        </div>
+      </div>
       <div className="club-actions-shell">
         <div className="club-actions-grid">
           {renderClubActionButton("PLANTILLA", "club", () => setClubView("plantilla"), clubView === "plantilla")}
@@ -3069,7 +3084,6 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
           </button>
           <button className="logout-btn draft-logout" onClick={onLogout}>
             <DraftIcon name="logout" />
-            <span>Cerrar sesion</span>
           </button>
         </div>
       </header>
