@@ -2420,6 +2420,45 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     </section>
   );
 
+  const renderLeagueActionButton = (
+    label: string,
+    icon: IconName,
+    onClick: () => void,
+    options?: { active?: boolean; wide?: boolean; admin?: boolean }
+  ) => (
+    <button
+      className={[
+        "league-action-card",
+        options?.active ? "active" : "",
+        options?.wide ? "wide" : "",
+        options?.admin ? "admin" : "",
+      ].filter(Boolean).join(" ")}
+      onClick={onClick}
+    >
+      <span className="league-action-icon">
+        <DraftIcon name={icon} />
+      </span>
+      <span className="league-action-label">{label}</span>
+    </button>
+  );
+
+  const renderClubActionButton = (
+    label: string,
+    icon: IconName,
+    onClick: () => void,
+    active: boolean
+  ) => (
+    <button
+      className={["league-action-card", "club-action-card", active ? "active" : ""].filter(Boolean).join(" ")}
+      onClick={onClick}
+    >
+      <span className="league-action-icon">
+        <DraftIcon name={icon} />
+      </span>
+      <span className="league-action-label">{label}</span>
+    </button>
+  );
+
   const renderClub = () => (
     <section className="draft-panel">
       <h2>Club</h2>
@@ -2428,16 +2467,12 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         {salary(currentPayroll)}/{salary(currentTeam?.salaryCap || settings.salaryCap)} | Plantilla:{" "}
         {currentTeam?.squad.length || 0}/{TEAM_SIZE_TARGET}
       </p>
-      <div className="offer-switch club-mode-switch">
-        <button className={clubView === "plantilla" ? "active" : ""} onClick={() => setClubView("plantilla")}>
-          Plantilla
-        </button>
-        <button className={clubView === "training" ? "active" : ""} onClick={() => setClubView("training")}>
-          Entrenamiento
-        </button>
-        <button className={clubView === "sponsor" ? "active" : ""} onClick={() => setClubView("sponsor")}>
-          Patrocinador
-        </button>
+      <div className="club-actions-shell">
+        <div className="club-actions-grid">
+          {renderClubActionButton("PLANTILLA", "club", () => setClubView("plantilla"), clubView === "plantilla")}
+          {renderClubActionButton("ENTRENAMIENTO", "add", () => setClubView("training"), clubView === "training")}
+          {renderClubActionButton("PATROCINADOR", "prize", () => setClubView("sponsor"), clubView === "sponsor")}
+        </div>
       </div>
       {clubView === "plantilla" && (
         <div className="card-grid">
@@ -2492,28 +2527,6 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       )}
       {clubView === "sponsor" && renderSponsor()}
     </section>
-  );
-
-  const renderLeagueActionButton = (
-    label: string,
-    icon: IconName,
-    onClick: () => void,
-    options?: { active?: boolean; wide?: boolean; admin?: boolean }
-  ) => (
-    <button
-      className={[
-        "league-action-card",
-        options?.active ? "active" : "",
-        options?.wide ? "wide" : "",
-        options?.admin ? "admin" : "",
-      ].filter(Boolean).join(" ")}
-      onClick={onClick}
-    >
-      <span className="league-action-icon">
-        <DraftIcon name={icon} />
-      </span>
-      <span className="league-action-label">{label}</span>
-    </button>
   );
 
   const renderTable = () => (
