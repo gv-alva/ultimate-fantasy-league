@@ -1419,6 +1419,11 @@ body {
   background: #1e293b;
 }
 
+.offer-card-unread {
+  border: 1px solid rgba(250, 204, 21, 0.45);
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.12) inset;
+}
+
 .offer-card strong,
 .offer-card span,
 .offer-card small {
@@ -1487,6 +1492,14 @@ body {
   text-align: center;
 }
 
+.inbox-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
 .champion-overlay {
   position: fixed;
   inset: 0;
@@ -1551,6 +1564,10 @@ body {
   max-width: 360px;
   color: #cbd5e1;
   line-height: 1.5;
+}
+
+.announcement-card {
+  width: min(460px, 100%);
 }
 
 .champion-confetti {

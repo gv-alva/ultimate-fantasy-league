@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.906";
+const SERVER_VERSION = "v0.907";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -499,7 +499,7 @@ const addLeagueComment = (draft, code, type, context = {}) => {
 };
 
 const addFaunaComment = (draft, code, type, context = {}) => {
-  if (Math.random() > 0.5) {
+  if (type !== "offerRejected" && Math.random() > 0.5) {
     return;
   }
 
@@ -555,6 +555,13 @@ const addFaunaComment = (draft, code, type, context = {}) => {
       `Fabritzio Fauna: ${player} entreno y ahora mete mas miedo que varios titulares de adorno.`,
       `Fabritzio Fauna: Mejoraron a ${player}. Ojo, porque otros clubes siguen durmiendo la siesta tactica.`,
       `Fabritzio Fauna: ${player} subio de nivel mientras media liga sigue entrenando con tutoriales rotos.`,
+    ],
+    offerRejected: [
+      `Fabritzio Fauna: ${loser} fue a negociar y salio bateado. Lo mandaron de regreso con las manos vacias y la dignidad en oferta.`,
+      `Fabritzio Fauna: Rechazaron a ${loser} como si hubiera llegado con billetes del Monopoly. Papelito brutal.`,
+      `Fabritzio Fauna: ${loser} quiso sacar a ${player} y termino haciendo el ridiculo en la puerta del club rival.`,
+      `Fabritzio Fauna: A ${loser} le cerraron la puerta en la cara. Oferta rechazada y orgullo raspado.`,
+      `Fabritzio Fauna: ${loser} fue por ${player} y lo devolvieron como paquete mal dirigido. Mercado cruel.`,
     ],
   };
 
@@ -828,6 +835,7 @@ const resetLeagueForNewSeason = (draft, lobby) => {
   draft.leagueMatchCount = 0;
   draft.regularSeasonComplete = false;
   draft.lastInjuryTriggerMatch = 0;
+  draft.lastInjuryTriggerMatchByTeam = {};
   draft.visibleRoundStart = 1;
   draft.seasonWinnerAnnounced = false;
   draft.seasonChampionKey = "";
@@ -1285,54 +1293,59 @@ const syncUnavailablePlayers = (draft) => {
 const maybeTriggerRandomEvent = (code, draft) => {
   if (!draft.randomEvents) return null;
 
-  const currentMatch = Number(draft.leagueMatchCount || 0);
-  if (currentMatch === 0 || currentMatch % 2 !== 0) return null;
-  if (Number(draft.lastInjuryTriggerMatch || 0) === currentMatch) return null;
-
-  const teamsWithPlayers = Object.entries(draft.teams).filter(([, team]) => team.squad.length > 0);
-  if (teamsWithPlayers.length === 0) return null;
-
-  const [owner, team] = teamsWithPlayers[Math.floor(Math.random() * teamsWithPlayers.length)];
-  const availablePlayers = team.squad.filter(
-    (player) =>
-      !player.unavailableUntilMatch ||
-      Number(player.unavailableUntilMatch) <= Number(draft.leagueMatchCount || 0)
-  );
-
-  if (availablePlayers.length === 0) return null;
-
-  const player = availablePlayers[Math.floor(Math.random() * availablePlayers.length)];
-  const reason = randomEventTemplates[Math.floor(Math.random() * randomEventTemplates.length)];
-  const unavailableUntilMatch = currentMatch + 2;
-
-  team.squad = team.squad.map((item) =>
-    item.ID === player.ID
-      ? {
-          ...item,
-          unavailableUntilMatch,
-          unavailableReason: reason,
-        }
-      : item
-  );
-
-  if (!draft.inbox[owner]) {
-    draft.inbox[owner] = [];
+  if (!draft.lastInjuryTriggerMatchByTeam) {
+    draft.lastInjuryTriggerMatchByTeam = {};
   }
 
-  draft.lastInjuryTriggerMatch = currentMatch;
+  const standingsMap = new Map((draft.standings || []).map((team) => [team.key, Number(team.played || 0)]));
+  const inboxItems = [];
 
-  const inboxItem = {
-    id: `event-${code}-${player.ID}-${Date.now()}`,
-    title: `${player.Name} no estara disponible`,
-    body: `${player.Name} ${reason}. Estara fuera por 2 partidos.`,
-    matchUntil: unavailableUntilMatch,
-    playerId: player.ID,
-  };
+  Object.entries(draft.teams || {}).forEach(([owner, team]) => {
+    const teamPlayed = standingsMap.get(owner) || 0;
+    if (teamPlayed === 0 || teamPlayed % 2 !== 0) return;
+    if (Number(draft.lastInjuryTriggerMatchByTeam[owner] || 0) >= teamPlayed) return;
+    if (!team?.squad?.length) return;
 
-  draft.inbox[owner].unshift(inboxItem);
-  addNews(draft, code, `Fabrizio Romano: ${player.Name} ${reason} y sera baja de ${team.name} por 2 partidos`);
+    const availablePlayers = team.squad.filter(
+      (player) => !player.unavailableUntilMatch || Number(player.unavailableUntilMatch) <= teamPlayed
+    );
 
-  return inboxItem;
+    if (availablePlayers.length === 0) return;
+
+    const player = availablePlayers[Math.floor(Math.random() * availablePlayers.length)];
+    const reason = randomEventTemplates[Math.floor(Math.random() * randomEventTemplates.length)];
+    const unavailableUntilMatch = teamPlayed + 2;
+
+    team.squad = team.squad.map((item) =>
+      item.ID === player.ID
+        ? {
+            ...item,
+            unavailableUntilMatch,
+            unavailableReason: reason,
+          }
+        : item
+    );
+
+    if (!draft.inbox[owner]) {
+      draft.inbox[owner] = [];
+    }
+
+    draft.lastInjuryTriggerMatchByTeam[owner] = teamPlayed;
+
+    const inboxItem = {
+      id: `event-${code}-${owner}-${player.ID}-${teamPlayed}`,
+      title: `${player.Name} no estara disponible`,
+      body: `${player.Name} ${reason}. Estara fuera por 2 partidos de ${team.name}.`,
+      matchUntil: unavailableUntilMatch,
+      playerId: player.ID,
+    };
+
+    draft.inbox[owner].unshift(inboxItem);
+    inboxItems.push(inboxItem);
+    addNews(draft, code, `Fabrizio Romano: ${player.Name} ${reason} y sera baja de ${team.name} por 2 partidos`);
+  });
+
+  return inboxItems;
 };
 
 const canAddPlayerToTeam = (team, player, salary = player.salary, amount = player.marketValue) => {
@@ -1580,6 +1593,7 @@ const ensureDraft = (code) => {
         return acc;
       }, {}),
       lastInjuryTriggerMatch: 0,
+      lastInjuryTriggerMatchByTeam: {},
       standings: [],
       schedule: [],
       playoff: null,
@@ -2589,6 +2603,29 @@ app.post("/drafts/:code/offers/:offerId", (req, res) => {
       amount: offer.amount,
       heldAmount: offer.amount,
     });
+    if (!draft.inbox[offer.from]) {
+      draft.inbox[offer.from] = [];
+    }
+    draft.inbox[offer.from].unshift({
+      id: `offer-accepted-${offer.id}-${Date.now()}`,
+      title: "Oferta aceptada",
+      body: `${seller.name} acepto tu oferta por ${offer.player.Name}. Ya puedes negociar el sueldo del jugador.`,
+      playerId: offer.player.ID,
+    });
+  } else if (decision === "rejected") {
+    if (!draft.inbox[offer.from]) {
+      draft.inbox[offer.from] = [];
+    }
+    draft.inbox[offer.from].unshift({
+      id: `offer-rejected-${offer.id}-${Date.now()}`,
+      title: "Oferta rechazada",
+      body: `${draft.teams[offer.to]?.name || offer.to} rechazo tu oferta por ${offer.player.Name}.`,
+      playerId: offer.player.ID,
+    });
+    addFaunaComment(draft, code, "offerRejected", {
+      loser: draft.teams[offer.from]?.name || offer.from,
+      player: offer.player.Name,
+    });
   }
 
   offer.status = decision;
@@ -2905,10 +2942,7 @@ app.post("/drafts/:code/playoff-result", (req, res) => {
     return res.status(400).json({ error: "No hay llave disponible para esta fase" });
   }
 
-  const canManage =
-    lobby.creator === username ||
-    match.homeKey === username ||
-    match.awayKey === username;
+  const canManage = lobby.creator === username;
 
   if (!canManage) {
     return res.status(403).json({ error: "No puedes registrar este resultado" });

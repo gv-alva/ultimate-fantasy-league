@@ -1,9 +1,9 @@
-import { type CSSProperties, type ReactNode, type TouchEvent, useEffect, useMemo, useRef, useState } from "react";
+﻿import { type CSSProperties, type ReactNode, type TouchEvent, useEffect, useMemo, useRef, useState } from "react";
 import faunaAvatar from "./assets/fauna.webp";
 import romanoAvatar from "./assets/romano.jpg";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
-const UI_VERSION = "0.906";
+const UI_VERSION = "0.907";
 const TEAM_SIZE_TARGET = 20;
 
 type Tab = "Inicio" | "Club" | "Liga" | "Transferencia";
@@ -177,6 +177,12 @@ type DraftEvent = {
 type ChampionOverlayState = {
   id: string;
   name: string;
+};
+
+type ClubAnnouncement = {
+  id: string;
+  title: string;
+  body: string;
 };
 
 type NewsEntry = {
@@ -468,7 +474,7 @@ type AppliedSearch = {
 };
 
 const generatedClubNames = [
-  "Atlético Prisma",
+  "AtlÃ©tico Prisma",
   "Racing Aurora",
   "Sporting Volcan",
   "Real Cobalto",
@@ -557,7 +563,7 @@ const getNewsText = (item: NewsEntry) =>
     : item.text
         .replace("Fabrizio Romano: ", "")
         .replace("Fabritzio Fauna: ", "")
-        .replace(/Liga UFL: (.+?) es campeon de la temporada/, "Liga UFL: $1 ★ es campeon de la temporada");
+        .replace(/Liga UFL: (.+?) es campeon de la temporada/, "Liga UFL: $1 \u2605 es campeon de la temporada");
 
 const getNewsAvatarImage = (item: NewsEntry) =>
   item.text.startsWith("Fabrizio Romano:")
@@ -861,6 +867,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const previousServerPhaseRef = useRef<ServerPhase | null>(null);
   const hasHydratedFromEventsRef = useRef(false);
   const shellTouchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const activeTabRef = useRef<Tab>("Inicio");
   const [clubName, setClubName] = useState("");
   const [opponentName, setOpponentName] = useState("");
   const [goalsFor, setGoalsFor] = useState("0");
@@ -895,9 +902,44 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [editPts, setEditPts] = useState("0");
   const [seasonChampionKey, setSeasonChampionKey] = useState("");
   const [championOverlay, setChampionOverlay] = useState<ChampionOverlayState | null>(null);
+  const [clubAnnouncement, setClubAnnouncement] = useState<ClubAnnouncement | null>(null);
+  const [readInboxIds, setReadInboxIds] = useState<string[]>([]);
+  const [hasUnreadInicio, setHasUnreadInicio] = useState(false);
   const seenChampionCelebrationRef = useRef("");
+  const knownNewsKeysRef = useRef<Set<string>>(new Set());
+  const knownInboxIdsRef = useRef<Set<string>>(new Set());
 
   const applyDraftPayload = (draft: DraftEvent) => {
+    const incomingNews = draft.news || [];
+    const incomingInbox = draft.inbox?.[currentUser] || [];
+    const incomingNewsKeys = incomingNews.map((item, index) => `${item.text}-${item.createdAt || index}`);
+    const incomingInboxIds = incomingInbox.map((item) => item.id);
+    const newNewsKeys = incomingNewsKeys.filter((key) => !knownNewsKeysRef.current.has(key));
+    const newInboxItems = incomingInbox.filter((item) => !knownInboxIdsRef.current.has(item.id));
+
+    if (hasHydratedFromEventsRef.current) {
+      if ((newNewsKeys.length > 0 || newInboxItems.length > 0) && activeTabRef.current !== "Inicio") {
+        setHasUnreadInicio(true);
+      }
+
+      const offerAnnouncement = newInboxItems.find(
+        (item) => item.title === "Oferta aceptada" || item.title === "Oferta rechazada"
+      );
+
+      if (offerAnnouncement) {
+        setClubAnnouncement({
+          id: offerAnnouncement.id,
+          title: offerAnnouncement.title,
+          body: offerAnnouncement.body,
+        });
+      }
+    } else {
+      setReadInboxIds(incomingInboxIds);
+    }
+
+    knownNewsKeysRef.current = new Set(incomingNewsKeys);
+    knownInboxIdsRef.current = new Set(incomingInboxIds);
+
     setServerPhase(draft.phase);
     setOrganizer(draft.organizer);
     setConfirmedOwners(draft.confirmedOwners || []);
@@ -999,8 +1041,17 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setQuickTournamentPrize("6");
     setSeasonChampionKey("");
     setChampionOverlay(null);
+    setClubAnnouncement(null);
+    setReadInboxIds([]);
+    setHasUnreadInicio(false);
     seenChampionCelebrationRef.current = "";
+    knownNewsKeysRef.current = new Set();
+    knownInboxIdsRef.current = new Set();
   }, [leagueCode]);
+
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1314,6 +1365,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   ).length;
   const myPendingSignings = pendingSignings.filter((signing) => signing.owner === currentUser);
   const myInbox = inbox[currentUser] || [];
+  const unreadInboxCount = myInbox.filter((item) => !readInboxIds.includes(item.id)).length;
   const currentPayroll =
     currentTeam?.salaryUsed ??
     currentTeam?.squad.reduce((sum, player) => sum + (Number(player.salary) || 0), 0) ??
@@ -1341,7 +1393,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     return groups;
   }, []);
   const championLabel = (teamKey: string, name: string) =>
-    seasonChampionKey && teamKey === seasonChampionKey ? `${name} ★` : name;
+    seasonChampionKey && teamKey === seasonChampionKey ? `${name} \u2605` : name;
   const realLeagueClubs = displayStandings.filter((team) => team.real);
   const selectedLeagueClubStanding = realLeagueClubs.find((team) => team.key === selectedLeagueClub) || realLeagueClubs[0];
   const selectedLeagueClubTeam = selectedLeagueClubStanding ? teams[selectedLeagueClubStanding.key] : null;
@@ -1357,6 +1409,13 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     return income;
   };
 
+  const getUnavailableMatchesRemaining = (player: Player) => {
+    const owner = playerOwners.get(player.ID);
+    if (!owner || !player.unavailableUntilMatch) return 0;
+    const ownerPlayed = displayStandings.find((team) => team.key === owner)?.played || 0;
+    return Math.max(0, Number(player.unavailableUntilMatch) - Number(ownerPlayed || 0));
+  };
+
   useEffect(() => {
     const realLeagueClub = displayStandings.find((team) => team.real);
     if (!selectedLeagueClub && realLeagueClub) {
@@ -1369,9 +1428,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
 
   const getPlayerStatusLabel = (player: Player) => {
     const owner = playerOwners.get(player.ID);
-    const matchesRemaining = player.unavailableUntilMatch
-      ? Math.max(0, Number(player.unavailableUntilMatch) - leagueMatchCount)
-      : 0;
+    const matchesRemaining = getUnavailableMatchesRemaining(player);
 
     if (matchesRemaining > 0) {
       return `No disponible ${matchesRemaining} partido(s)`;
@@ -2078,8 +2135,23 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       match &&
       match.homeKey &&
       match.awayKey &&
-      (isOrganizer || match.homeKey === currentUser || match.awayKey === currentUser)
+      isOrganizer
     );
+
+  const markInboxAsRead = () => {
+    setReadInboxIds(myInbox.map((item) => item.id));
+  };
+
+  const openInbox = () => {
+    setShowInbox(true);
+  };
+
+  const handleTabChange = (tab: Tab) => {
+    setActiveTab(tab);
+    if (tab === "Inicio") {
+      setHasUnreadInicio(false);
+    }
+  };
 
   const submitPlayoffResult = async (stage: "semifinal1" | "semifinal2" | "final") => {
     const match = playoff?.[stage];
@@ -2230,7 +2302,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
 
   const changeSponsor = async () => {
     const confirmed = window.confirm(
-      "El cambio de patrocinador es aleatorio y solo se puede hacer una vez por temporada. ¿Quieres continuar?"
+      "El cambio de patrocinador es aleatorio y solo se puede hacer una vez por temporada. Â¿Quieres continuar?"
     );
     if (!confirmed) return;
 
@@ -3097,11 +3169,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     }
 
     if (deltaX < 0 && activeTabIndex < tabs.length - 1) {
-      setActiveTab(tabs[activeTabIndex + 1]);
+      handleTabChange(tabs[activeTabIndex + 1]);
     }
 
     if (deltaX > 0 && activeTabIndex > 0) {
-      setActiveTab(tabs[activeTabIndex - 1]);
+      handleTabChange(tabs[activeTabIndex - 1]);
     }
   };
 
@@ -3118,10 +3190,10 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
           <span className="draft-version-badge">v{UI_VERSION}</span>
         </div>
         <div className="draft-toolbar">
-          <button className="small-action inbox-btn" onClick={() => setShowInbox(true)}>
+          <button className="small-action inbox-btn" onClick={openInbox}>
             <DraftIcon name="inbox" />
             <span>Buzon</span>
-            {myInbox.length > 0 && <span className="notif-dot toolbar-dot"></span>}
+            {unreadInboxCount > 0 && <span className="notif-dot toolbar-dot"></span>}
           </button>
           <button className="logout-btn draft-logout" onClick={onLogout}>
             <DraftIcon name="logout" />
@@ -3138,7 +3210,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
           <button
             key={tab}
             className={activeTab === tab ? "active" : ""}
-            onClick={() => setActiveTab(tab)}
+            onClick={() => handleTabChange(tab)}
           >
             <span className="tab-button-inner">
               <span className="tab-icon-wrap">
@@ -3147,6 +3219,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
               <span className="tab-label">{tab}</span>
             </span>
             {tab === "Transferencia" && pendingReceived > 0 && <span className="notif-dot"></span>}
+            {tab === "Inicio" && hasUnreadInicio && <span className="notif-dot"></span>}
           </button>
         ))}
       </nav>
@@ -3471,9 +3544,9 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                 </p>
                 {isProtected && <p>Blindado por clausula</p>}
                 {selectedPlayer.unavailableUntilMatch &&
-                  Math.max(0, Number(selectedPlayer.unavailableUntilMatch) - leagueMatchCount) > 0 && (
+                  getUnavailableMatchesRemaining(selectedPlayer) > 0 && (
                     <p>
-                      Baja por {Math.max(0, Number(selectedPlayer.unavailableUntilMatch) - leagueMatchCount)} partido(s):{" "}
+                      Baja por {getUnavailableMatchesRemaining(selectedPlayer)} partido(s):{" "}
                       {selectedPlayer.unavailableReason}
                     </p>
                   )}
@@ -3526,11 +3599,18 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         <div className="player-modal" onClick={() => setShowInbox(false)}>
           <div className="player-modal-card" onClick={(event) => event.stopPropagation()}>
             <button className="modal-close" onClick={() => setShowInbox(false)}>Cerrar</button>
-            <h2>Buzon del club</h2>
+            <div className="inbox-header-row">
+              <h2>Buzon del club</h2>
+              {myInbox.length > 0 && (
+                <button className="small-action" onClick={markInboxAsRead}>
+                  MARCAR TODO LEIDO
+                </button>
+              )}
+            </div>
             <div className="offers-panel">
               {myInbox.length === 0 && <div className="draft-empty-state">No tienes avisos nuevos.</div>}
               {myInbox.map((item) => (
-                <article key={item.id} className="offer-card">
+                <article key={item.id} className={`offer-card ${readInboxIds.includes(item.id) ? "" : "offer-card-unread"}`}>
                   <strong>{item.title}</strong>
                   <span>{item.body}</span>
                   {item.matchUntil && (
@@ -3548,8 +3628,8 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
           <div className="champion-overlay-card" onClick={(event) => event.stopPropagation()}>
             <div className="champion-glow-ring" />
             <span className="champion-kicker">Campeon de temporada</span>
-            <h2>{championOverlay.name} ★</h2>
-            <p>La liga regular ya tiene dueño. Ahora solo queda cerrar la liguilla.</p>
+            <h2>{championOverlay.name} {"\u2605"}</h2>
+            <p>La liga regular ya tiene dueno. Ahora solo queda cerrar la liguilla.</p>
             <div className="champion-confetti" aria-hidden="true">
               <span />
               <span />
@@ -3564,6 +3644,21 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
           </div>
         </div>
       )}
+
+      {clubAnnouncement && (
+        <div className="champion-overlay" onClick={() => setClubAnnouncement(null)}>
+          <div className="champion-overlay-card announcement-card" onClick={(event) => event.stopPropagation()}>
+            <span className="champion-kicker">{clubAnnouncement.title}</span>
+            <h2>{clubAnnouncement.title}</h2>
+            <p>{clubAnnouncement.body}</p>
+            <button className="btn btn-login" onClick={() => setClubAnnouncement(null)}>
+              CERRAR
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
+
+
