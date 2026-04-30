@@ -3,7 +3,7 @@ import faunaAvatar from "./assets/fauna.webp";
 import romanoAvatar from "./assets/romano.jpg";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
-const UI_VERSION = "0.905";
+const UI_VERSION = "0.906";
 const TEAM_SIZE_TARGET = 20;
 
 type Tab = "Inicio" | "Club" | "Liga" | "Transferencia";
@@ -162,6 +162,9 @@ type DraftEvent = {
   news: NewsEntry[];
   leagueMatchCount: number;
   regularSeasonComplete?: boolean;
+  seasonChampionKey?: string;
+  seasonChampionName?: string;
+  championCelebrationId?: string;
   inbox: Record<string, InboxItem[]>;
   standings: Standing[];
   schedule: ScheduleMatch[][];
@@ -169,6 +172,11 @@ type DraftEvent = {
   visibleRoundStart: number;
   playoff?: PlayoffState | null;
   quickTournament?: QuickTournamentState | null;
+};
+
+type ChampionOverlayState = {
+  id: string;
+  name: string;
 };
 
 type NewsEntry = {
@@ -243,6 +251,8 @@ type IconName =
 
 const tabs: Tab[] = ["Inicio", "Club", "Liga", "Transferencia"];
 const groups: PositionGroup[] = ["POR", "DEF", "MED", "EXT", "DEL"];
+const scoreOptions = Array.from({ length: 11 }, (_, index) => String(index));
+const scorerGoalOptions = Array.from({ length: 10 }, (_, index) => String(index + 1));
 const tabIcons: Record<Tab, IconName> = {
   Inicio: "home",
   Club: "club",
@@ -546,7 +556,8 @@ const getNewsText = (item: NewsEntry) =>
     ? item.text.split(": ").slice(1).join(": ")
     : item.text
         .replace("Fabrizio Romano: ", "")
-        .replace("Fabritzio Fauna: ", "");
+        .replace("Fabritzio Fauna: ", "")
+        .replace(/Liga UFL: (.+?) es campeon de la temporada/, "Liga UFL: $1 ★ es campeon de la temporada");
 
 const getNewsAvatarImage = (item: NewsEntry) =>
   item.text.startsWith("Fabrizio Romano:")
@@ -882,6 +893,9 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [editGf, setEditGf] = useState("0");
   const [editGa, setEditGa] = useState("0");
   const [editPts, setEditPts] = useState("0");
+  const [seasonChampionKey, setSeasonChampionKey] = useState("");
+  const [championOverlay, setChampionOverlay] = useState<ChampionOverlayState | null>(null);
+  const seenChampionCelebrationRef = useRef("");
 
   const applyDraftPayload = (draft: DraftEvent) => {
     setServerPhase(draft.phase);
@@ -916,6 +930,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setNews(draft.news || []);
     setLeagueMatchCount(draft.leagueMatchCount || 0);
     setRegularSeasonComplete(Boolean(draft.regularSeasonComplete));
+    setSeasonChampionKey(draft.seasonChampionKey || "");
     setInbox(draft.inbox || {});
     setStandings(draft.standings || []);
     setSchedule(draft.schedule || []);
@@ -938,6 +953,18 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
 
     if (draft.phase === "season") {
       setPhase("initial");
+    }
+
+    if (
+      draft.championCelebrationId &&
+      draft.seasonChampionName &&
+      seenChampionCelebrationRef.current !== draft.championCelebrationId
+    ) {
+      seenChampionCelebrationRef.current = draft.championCelebrationId;
+      setChampionOverlay({
+        id: draft.championCelebrationId,
+        name: draft.seasonChampionName,
+      });
     }
 
     previousServerPhaseRef.current = draft.phase;
@@ -970,6 +997,9 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setShowQuickTournamentForm(false);
     setSelectedQuickTeams([]);
     setQuickTournamentPrize("6");
+    setSeasonChampionKey("");
+    setChampionOverlay(null);
+    seenChampionCelebrationRef.current = "";
   }, [leagueCode]);
 
   useEffect(() => {
@@ -1310,6 +1340,8 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     }
     return groups;
   }, []);
+  const championLabel = (teamKey: string, name: string) =>
+    seasonChampionKey && teamKey === seasonChampionKey ? `${name} ★` : name;
   const realLeagueClubs = displayStandings.filter((team) => team.real);
   const selectedLeagueClubStanding = realLeagueClubs.find((team) => team.key === selectedLeagueClub) || realLeagueClubs[0];
   const selectedLeagueClubTeam = selectedLeagueClubStanding ? teams[selectedLeagueClubStanding.key] : null;
@@ -2588,7 +2620,9 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
             <div key={team.key} className="league-row rich">
               <span className="league-rank">{index + 1}</span>
               <div className="league-main">
-                <strong>{team.name}</strong>
+                <strong className={seasonChampionKey === team.key ? "champion-name" : ""}>
+                  {championLabel(team.key, team.name)}
+                </strong>
                 <em>{team.champions ? "Champions" : "Liga"}</em>
               </div>
               <div className="league-stats-grid">
@@ -2612,14 +2646,16 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                 className={`club-chip ${selectedLeagueClubStanding?.key === team.key ? "active" : ""}`}
                 onClick={() => setSelectedLeagueClub(team.key)}
               >
-                {team.name}
+                {championLabel(team.key, team.name)}
               </button>
             ))}
           </div>
           {selectedLeagueClubStanding && (
             <div className="clubs-panel">
               <div className="draft-list-item club-summary-card">
-                <strong>{selectedLeagueClubStanding.name}</strong>
+                <strong className={seasonChampionKey === selectedLeagueClubStanding.key ? "champion-name" : ""}>
+                  {championLabel(selectedLeagueClubStanding.key, selectedLeagueClubStanding.name)}
+                </strong>
                 <div className="club-summary-stats">
                   <small><b>{selectedLeagueClubStanding.played}</b> PJ</small>
                   <small><b>{selectedLeagueClubStanding.wins}</b> G</small>
@@ -2743,7 +2779,12 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
               {quickTournament.championKey && (
                 <div className="draft-list-item">
                   <strong>Campeon</strong>
-                  <p>{displayStandings.find((team) => team.key === quickTournament.championKey)?.name || quickTournament.championKey}</p>
+                  <p>
+                    {championLabel(
+                      quickTournament.championKey,
+                      displayStandings.find((team) => team.key === quickTournament.championKey)?.name || quickTournament.championKey
+                    )}
+                  </p>
                 </div>
               )}
             </>
@@ -3135,11 +3176,19 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
               </label>
               <label className="field">
                 <span>Marcador tuyo</span>
-                <input className="input" value={goalsFor} onChange={(e) => setGoalsFor(e.target.value)} />
+                <select className="input" value={goalsFor} onChange={(e) => setGoalsFor(e.target.value)}>
+                  {scoreOptions.map((value) => (
+                    <option key={`gf-${value}`} value={value}>{value}</option>
+                  ))}
+                </select>
               </label>
               <label className="field">
                 <span>Marcador rival</span>
-                <input className="input" value={goalsAgainst} onChange={(e) => setGoalsAgainst(e.target.value)} />
+                <select className="input" value={goalsAgainst} onChange={(e) => setGoalsAgainst(e.target.value)}>
+                  {scoreOptions.map((value) => (
+                    <option key={`ga-${value}`} value={value}>{value}</option>
+                  ))}
+                </select>
               </label>
               <div className="field scorer-field">
                 <span>Goleadores de tu club</span>
@@ -3158,11 +3207,15 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                           </option>
                         ))}
                       </select>
-                      <input
+                      <select
                         className="input scorer-goals"
                         value={row.goals}
                         onChange={(e) => updateGoalRow("mine", index, "goals", e.target.value)}
-                      />
+                      >
+                        {scorerGoalOptions.map((value) => (
+                          <option key={`mine-goals-${index}-${value}`} value={value}>{value}</option>
+                        ))}
+                      </select>
                       <button className="small-action danger scorer-remove" onClick={() => removeGoalRow("mine", index)}>
                         Quitar
                       </button>
@@ -3191,11 +3244,15 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                             </option>
                           ))}
                         </select>
-                        <input
+                        <select
                           className="input scorer-goals"
                           value={row.goals}
                           onChange={(e) => updateGoalRow("opponent", index, "goals", e.target.value)}
-                        />
+                        >
+                          {scorerGoalOptions.map((value) => (
+                            <option key={`opp-goals-${index}-${value}`} value={value}>{value}</option>
+                          ))}
+                        </select>
                         <button className="small-action danger scorer-remove" onClick={() => removeGoalRow("opponent", index)}>
                           Quitar
                         </button>
@@ -3209,11 +3266,19 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
               )}
               <label className="field">
                 <span>Tarjetas de tu equipo</span>
-                <input className="input" value={teamCards} onChange={(e) => setTeamCards(e.target.value)} />
+                <select className="input" value={teamCards} onChange={(e) => setTeamCards(e.target.value)}>
+                  {scoreOptions.map((value) => (
+                    <option key={`team-cards-${value}`} value={value}>{value}</option>
+                  ))}
+                </select>
               </label>
               <label className="field">
                 <span>Tarjetas del rival</span>
-                <input className="input" value={opponentCards} onChange={(e) => setOpponentCards(e.target.value)} />
+                <select className="input" value={opponentCards} onChange={(e) => setOpponentCards(e.target.value)}>
+                  {scoreOptions.map((value) => (
+                    <option key={`opp-cards-${value}`} value={value}>{value}</option>
+                  ))}
+                </select>
               </label>
               <label className="field">
                 <span>Jugador del partido</span>
@@ -3474,6 +3539,28 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                 </article>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {championOverlay && (
+        <div className="champion-overlay" onClick={() => setChampionOverlay(null)}>
+          <div className="champion-overlay-card" onClick={(event) => event.stopPropagation()}>
+            <div className="champion-glow-ring" />
+            <span className="champion-kicker">Campeon de temporada</span>
+            <h2>{championOverlay.name} ★</h2>
+            <p>La liga regular ya tiene dueño. Ahora solo queda cerrar la liguilla.</p>
+            <div className="champion-confetti" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+              <span />
+              <span />
+              <span />
+            </div>
+            <button className="btn btn-login" onClick={() => setChampionOverlay(null)}>
+              ENTENDIDO
+            </button>
           </div>
         </div>
       )}

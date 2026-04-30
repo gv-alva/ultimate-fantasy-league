@@ -667,6 +667,11 @@ body {
   overflow-wrap: anywhere;
 }
 
+.champion-name {
+  color: #fde68a;
+  text-shadow: 0 0 18px rgba(250, 204, 21, 0.24);
+}
+
 .league-main em {
   color: #cbd5e1;
   font-style: italic;
@@ -1480,6 +1485,109 @@ body {
 
 .scorer-goals {
   text-align: center;
+}
+
+.champion-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: radial-gradient(circle at top, rgba(250, 204, 21, 0.16), rgba(2, 4, 10, 0.94) 42%, rgba(2, 4, 10, 0.98) 100%);
+  animation: championFadeIn 0.28s ease;
+}
+
+.champion-overlay-card {
+  position: relative;
+  width: min(540px, 100%);
+  padding: 30px 24px 24px;
+  border-radius: 28px;
+  border: 1px solid rgba(250, 204, 21, 0.36);
+  background:
+    radial-gradient(circle at top, rgba(250, 204, 21, 0.2), transparent 38%),
+    linear-gradient(180deg, rgba(10, 18, 33, 0.98), rgba(5, 10, 20, 0.98));
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+  text-align: center;
+  overflow: hidden;
+}
+
+.champion-glow-ring {
+  position: absolute;
+  inset: 18px;
+  border-radius: 24px;
+  border: 1px solid rgba(250, 204, 21, 0.2);
+  pointer-events: none;
+}
+
+.champion-kicker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(250, 204, 21, 0.12);
+  color: #facc15;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.champion-overlay-card h2 {
+  margin: 0 0 12px;
+  font-size: clamp(32px, 7vw, 52px);
+  line-height: 1.02;
+  color: #f8fafc;
+  text-shadow: 0 0 24px rgba(250, 204, 21, 0.24);
+}
+
+.champion-overlay-card p {
+  margin: 0 auto 22px;
+  max-width: 360px;
+  color: #cbd5e1;
+  line-height: 1.5;
+}
+
+.champion-confetti {
+  position: relative;
+  height: 56px;
+  margin-bottom: 10px;
+}
+
+.champion-confetti span {
+  position: absolute;
+  top: -8px;
+  width: 10px;
+  height: 26px;
+  border-radius: 999px;
+  opacity: 0.9;
+  animation: championConfetti 1.7s ease-in-out infinite;
+}
+
+.champion-confetti span:nth-child(1) { left: 12%; background: #facc15; animation-delay: 0s; }
+.champion-confetti span:nth-child(2) { left: 26%; background: #f97316; animation-delay: 0.12s; }
+.champion-confetti span:nth-child(3) { left: 40%; background: #ffffff; animation-delay: 0.24s; }
+.champion-confetti span:nth-child(4) { left: 58%; background: #22c55e; animation-delay: 0.36s; }
+.champion-confetti span:nth-child(5) { left: 72%; background: #facc15; animation-delay: 0.48s; }
+.champion-confetti span:nth-child(6) { left: 86%; background: #ef4444; animation-delay: 0.6s; }
+
+@keyframes championFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes championConfetti {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(22px) rotate(18deg);
+  }
 }
 
 .scorer-add,

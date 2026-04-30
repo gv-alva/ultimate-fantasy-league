@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.905";
+const SERVER_VERSION = "v0.906";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1800;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -694,6 +694,9 @@ const appendSeasonWinnerIfNeeded = (draft, lobby, code) => {
 
   draft.regularSeasonComplete = true;
   draft.seasonWinnerAnnounced = true;
+  draft.seasonChampionKey = winner.key;
+  draft.seasonChampionName = winner.name;
+  draft.championCelebrationId = `season-${code}-${winner.key}-${Date.now()}`;
   awardLeaguePrizeIfNeeded(draft, lobby, code);
   addNews(draft, code, `Liga UFL: ${winner.name} es campeon de la temporada`);
   addNews(draft, code, "Liga UFL: se completo la liga regular. La liguilla ya esta habilitada.");
@@ -827,6 +830,9 @@ const resetLeagueForNewSeason = (draft, lobby) => {
   draft.lastInjuryTriggerMatch = 0;
   draft.visibleRoundStart = 1;
   draft.seasonWinnerAnnounced = false;
+  draft.seasonChampionKey = "";
+  draft.seasonChampionName = "";
+  draft.championCelebrationId = "";
   draft.seasonLeaguePrizePaid = false;
   draft.playoffPrizePaid = false;
   draft.playoff = null;
@@ -1468,6 +1474,15 @@ const getDraftPayload = (code) => {
     });
   }
 
+  if (draft.seasonWinnerAnnounced && !draft.seasonChampionKey && draft.standings?.length) {
+    const winner = sortStandings(draft.standings)[0];
+    if (winner) {
+      draft.seasonChampionKey = winner.key;
+      draft.seasonChampionName = winner.name;
+      draft.championCelebrationId = draft.championCelebrationId || `season-${code}-${winner.key}`;
+    }
+  }
+
   return {
     code,
     organizer: draft.organizer,
@@ -1483,6 +1498,9 @@ const getDraftPayload = (code) => {
     news: getNewsPayload(draft, code),
     leagueMatchCount: draft.leagueMatchCount || 0,
     regularSeasonComplete: Boolean(draft.regularSeasonComplete),
+    seasonChampionKey: draft.seasonChampionKey || "",
+    seasonChampionName: draft.seasonChampionName || "",
+    championCelebrationId: draft.championCelebrationId || "",
     inbox: draft.inbox || {},
     standings: draft.standings || [],
     schedule: draft.schedule || [],
@@ -1568,6 +1586,9 @@ const ensureDraft = (code) => {
       quickTournament: null,
       visibleRoundStart: 1,
       seasonWinnerAnnounced: false,
+      seasonChampionKey: "",
+      seasonChampionName: "",
+      championCelebrationId: "",
       seasonLeaguePrizePaid: false,
       playoffPrizePaid: false,
       news: [{ code, text: "Seleccion principal iniciada", createdAt: Date.now() }],
