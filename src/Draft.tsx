@@ -3,7 +3,7 @@ import faunaAvatar from "./assets/fauna.webp";
 import romanoAvatar from "./assets/romano.jpg";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
-const UI_VERSION = "0.907";
+const UI_VERSION = "0.908";
 const TEAM_SIZE_TARGET = 20;
 
 type Tab = "Inicio" | "Club" | "Liga" | "Transferencia";
@@ -236,6 +236,7 @@ type QuickTournamentState = {
   rounds: QuickTournamentRound[];
   championKey?: string;
   prize?: number;
+  runnerUpPrize?: number;
 };
 
 type IconName =
@@ -534,9 +535,9 @@ const getTrainingCost = (overall: number) => {
   if (overall < 75) return 1;
   if (overall <= 80) return 2;
   if (overall <= 85) return 4;
-  if (overall <= 90) return 7;
-  if (overall <= 95) return 12;
-  return 20;
+  if (overall <= 90) return 10;
+  if (overall <= 95) return 15;
+  return 25;
 };
 
 const getNewsAuthor = (item: NewsEntry) =>
@@ -890,7 +891,8 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [quickTournament, setQuickTournament] = useState<QuickTournamentState | null>(null);
   const [showQuickTournamentForm, setShowQuickTournamentForm] = useState(false);
   const [selectedQuickTeams, setSelectedQuickTeams] = useState<string[]>([]);
-  const [quickTournamentPrize, setQuickTournamentPrize] = useState("6");
+  const [quickTournamentPrize, setQuickTournamentPrize] = useState("10");
+  const [quickTournamentRunnerUpPrize, setQuickTournamentRunnerUpPrize] = useState("5");
   const [clubFeedMessage, setClubFeedMessage] = useState("");
   const [editStandingKey, setEditStandingKey] = useState("");
   const [editPlayed, setEditPlayed] = useState("0");
@@ -1038,7 +1040,8 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setQuickTournament(null);
     setShowQuickTournamentForm(false);
     setSelectedQuickTeams([]);
-    setQuickTournamentPrize("6");
+    setQuickTournamentPrize("10");
+    setQuickTournamentRunnerUpPrize("5");
     setSeasonChampionKey("");
     setChampionOverlay(null);
     setClubAnnouncement(null);
@@ -2223,6 +2226,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         username: currentUser,
         teamKeys: selectedQuickTeams,
         prize: Number(quickTournamentPrize) || 0,
+        runnerUpPrize: Number(quickTournamentRunnerUpPrize) || 0,
       }),
     });
 
@@ -2237,7 +2241,8 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       applyDraftPayload(payload);
     }
     setShowQuickTournamentForm(false);
-    setQuickTournamentPrize("6");
+    setQuickTournamentPrize("10");
+    setQuickTournamentRunnerUpPrize("5");
   };
 
   const submitQuickTournamentResult = async (roundIndex: number, matchId: string, homeName: string, awayName: string) => {
@@ -2809,7 +2814,10 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                 <div className="draft-list-item">
                   <strong>Crear torneo rapido</strong>
                   <p>Selecciona clubes reales, el orden sera aleatorio y se rellenara con CPU si hace falta.</p>
-                  <small>Premio al campeon: {money(Number(quickTournamentPrize) || 0)}</small>
+                  <small>
+                    Campeon: {money(Number(quickTournamentPrize) || 0)} | Subcampeon:{" "}
+                    {money(Number(quickTournamentRunnerUpPrize) || 0)}
+                  </small>
                 </div>
                 <button className="btn btn-login compact-btn" onClick={() => setShowQuickTournamentForm(true)}>
                   CREAR TORNEO RAPIDO
@@ -2822,7 +2830,10 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
             <>
               <div className="draft-list-item">
                 <strong>Bolsa del torneo rapido</strong>
-                <p>{money(Number(quickTournament.prize || 0))} para el campeon</p>
+                <p>
+                  {money(Number(quickTournament.prize || 0))} para el campeon |{" "}
+                  {money(Number(quickTournament.runnerUpPrize || 0))} para el subcampeon
+                </p>
               </div>
               {quickTournament.rounds.map((round, roundIndex) => (
                 <div key={`quick-round-${round.name}`} className="draft-list-item current-round">
@@ -3486,7 +3497,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
             <button className="modal-close" onClick={() => setShowQuickTournamentForm(false)}>Cerrar</button>
             <h2>Crear torneo rapido</h2>
             <label className="field">
-              <span>Premio del torneo</span>
+              <span>Premio al campeon</span>
               <select
                 className="input"
                 value={quickTournamentPrize}
@@ -3498,6 +3509,21 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                 <option value="8">8M</option>
                 <option value="10">10M</option>
                 <option value="12">12M</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Premio al subcampeon</span>
+              <select
+                className="input"
+                value={quickTournamentRunnerUpPrize}
+                onChange={(event) => setQuickTournamentRunnerUpPrize(event.target.value)}
+              >
+                <option value="2">2M</option>
+                <option value="4">4M</option>
+                <option value="5">5M</option>
+                <option value="6">6M</option>
+                <option value="8">8M</option>
+                <option value="10">10M</option>
               </select>
             </label>
             <div className="offers-panel">

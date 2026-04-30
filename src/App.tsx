@@ -4,7 +4,7 @@ import Draft from "./Draft";
 import Lobby from "./Lobby";
 import logo from "./assets/logo.png";
 
-const APP_VERSION = "0.907";
+const APP_VERSION = "0.908";
 
 type LobbyData = {
   code: string;
@@ -93,13 +93,13 @@ export default function App() {
   const [randomEvents, setRandomEvents] = useState(true);
   const [format, setFormat] = useState("Normal");
   const [leagueType, setLeagueType] = useState("Real");
-  const [money, setMoney] = useState(100);
-  const [salaryCap, setSalaryCap] = useState(1800);
-  const [leaguePrize, setLeaguePrize] = useState(20);
-  const [playoffPrize1, setPlayoffPrize1] = useState(25);
-  const [playoffPrize2, setPlayoffPrize2] = useState(14);
-  const [playoffPrize3, setPlayoffPrize3] = useState(8);
-  const [playoffPrize4, setPlayoffPrize4] = useState(4);
+  const [money, setMoney] = useState(220);
+  const [salaryCap, setSalaryCap] = useState(1500);
+  const [leaguePrize, setLeaguePrize] = useState(50);
+  const [playoffPrize1, setPlayoffPrize1] = useState(30);
+  const [playoffPrize2, setPlayoffPrize2] = useState(20);
+  const [playoffPrize3, setPlayoffPrize3] = useState(10);
+  const [playoffPrize4, setPlayoffPrize4] = useState(10);
 
   // lobby
   const [leagueCode, setLeagueCode] = useState("");
@@ -112,16 +112,16 @@ export default function App() {
   const [leagueSettings, setLeagueSettings] = useState<LeagueSettings>({
     format: "Normal",
     leagueType: "Real",
-    money: 100,
-    salaryCap: 1800,
+    money: 220,
+    salaryCap: 1500,
     champions: false,
     fillCpuTeams: true,
     randomEvents: true,
-    leaguePrize: 20,
-    playoffPrize1: 25,
-    playoffPrize2: 14,
-    playoffPrize3: 8,
-    playoffPrize4: 4,
+    leaguePrize: 50,
+    playoffPrize1: 30,
+    playoffPrize2: 20,
+    playoffPrize3: 10,
+    playoffPrize4: 10,
   });
 
   const persistLeague = (league: SavedLeague) => {
@@ -301,16 +301,16 @@ export default function App() {
       setLeagueSettings({
         format: "Normal",
         leagueType: "Real",
-        money: 100,
-        salaryCap: 1800,
+        money: 220,
+        salaryCap: 1500,
         champions: false,
         fillCpuTeams: true,
         randomEvents: true,
-        leaguePrize: 20,
-        playoffPrize1: 25,
-        playoffPrize2: 14,
-        playoffPrize3: 8,
-        playoffPrize4: 4,
+        leaguePrize: 50,
+        playoffPrize1: 30,
+        playoffPrize2: 20,
+        playoffPrize3: 10,
+        playoffPrize4: 10,
       });
     setScreen("login");
   };
@@ -757,6 +757,7 @@ export default function App() {
                 <option value={100}>100M</option>
                 <option value={150}>150M</option>
                 <option value={200}>200M</option>
+                <option value={220}>220M</option>
                 <option value={300}>300M</option>
               </select>
             </label>
@@ -769,6 +770,7 @@ export default function App() {
                 onChange={(e) => setSalaryCap(Number(e.target.value))}
               >
                 <option value={1400}>1.4M por temporada</option>
+                <option value={1500}>1.5M por temporada</option>
                 <option value={1800}>1.8M por temporada</option>
                 <option value={2200}>2.2M por temporada</option>
                 <option value={2600}>2.6M por temporada</option>
@@ -788,6 +790,7 @@ export default function App() {
                 <option value={20}>20M para cada club real</option>
                 <option value={25}>25M para cada club real</option>
                 <option value={30}>30M para cada club real</option>
+                <option value={50}>50M para cada club real</option>
               </select>
             </label>
 
@@ -820,6 +823,7 @@ export default function App() {
                     <option value={12}>12M</option>
                     <option value={14}>14M</option>
                     <option value={15}>15M</option>
+                    <option value={20}>20M</option>
                   </select>
                 </label>
                 <label className="field">
@@ -848,6 +852,7 @@ export default function App() {
                     <option value={4}>4M</option>
                     <option value={5}>5M</option>
                     <option value={6}>6M</option>
+                    <option value={10}>10M</option>
                   </select>
                 </label>
               </div>

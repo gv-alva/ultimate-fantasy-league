@@ -15,20 +15,22 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.907";
+const SERVER_VERSION = "v0.908";
 const TEAM_SIZE_TARGET = 20;
-const DEFAULT_SALARY_CAP = 1800;
+const DEFAULT_SALARY_CAP = 1500;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
 const RANDOM_EVENT_PROBABILITY = 0.2;
 const REAL_MATCHES_PER_CLUB = 40;
-const DEFAULT_LEAGUE_PRIZE = 20;
+const DEFAULT_LEAGUE_PRIZE = 50;
 const DEFAULT_PLAYOFF_PRIZES = {
-  first: 25,
-  second: 14,
-  third: 8,
-  fourth: 4,
+  first: 30,
+  second: 20,
+  third: 10,
+  fourth: 10,
 };
-const DEFAULT_QUICK_TOURNAMENT_PRIZE = 6;
+const DEFAULT_QUICK_TOURNAMENT_PRIZE = 10;
+const DEFAULT_QUICK_TOURNAMENT_RUNNER_UP_PRIZE = 5;
+const SEASON_SALARY_CAP_BONUS = 250;
 
 const randomEventTemplates = [
   "se fue de fiesta antes del partido",
@@ -389,9 +391,9 @@ const getTrainingCost = (overall) => {
   if (overall < 75) return 1;
   if (overall <= 80) return 2;
   if (overall <= 85) return 4;
-  if (overall <= 90) return 7;
-  if (overall <= 95) return 12;
-  return 20;
+  if (overall <= 90) return 10;
+  if (overall <= 95) return 15;
+  return 25;
 };
 
 const TRAINABLE_STAT_KEYS = ["PAC", "SHO", "PAS", "DRI", "DEF", "PHY"];
@@ -749,11 +751,22 @@ const awardQuickTournamentPrizeIfNeeded = (draft, code) => {
   if (!draft?.quickTournament?.championKey || draft.quickTournament.prizePaid) return;
 
   const amount = Number(draft.quickTournament.prize || 0);
+  const runnerUpAmount = Number(draft.quickTournament.runnerUpPrize || 0);
   const championKey = draft.quickTournament.championKey;
   const championTeam = draft.teams[championKey];
+  const finalRound = draft.quickTournament.rounds?.[draft.quickTournament.rounds.length - 1];
+  const finalMatch = finalRound?.matches?.[0];
+  const runnerUpKey =
+    finalMatch && finalMatch.homeKey && finalMatch.awayKey
+      ? (finalMatch.homeKey === championKey ? finalMatch.awayKey : finalMatch.homeKey)
+      : "";
   if (championTeam && amount > 0) {
     championTeam.budget = Number(championTeam.budget || 0) + amount;
     addNews(draft, code, `Liga UFL: ${championTeam.name} cobro ${formatMoney(amount)} por ganar el torneo rapido`);
+  }
+  if (runnerUpKey && draft.teams[runnerUpKey] && runnerUpAmount > 0) {
+    draft.teams[runnerUpKey].budget = Number(draft.teams[runnerUpKey].budget || 0) + runnerUpAmount;
+    addNews(draft, code, `Liga UFL: ${draft.teams[runnerUpKey].name} cobro ${formatMoney(runnerUpAmount)} por ser subcampeon del torneo rapido`);
   }
   draft.quickTournament.prizePaid = true;
 };
@@ -857,7 +870,12 @@ const resetLeagueForNewSeason = (draft, lobby) => {
 
   Object.values(draft.teams || {}).forEach((team) => {
     team.sponsorChangedThisSeason = false;
+    team.salaryCap = Number(team.salaryCap || DEFAULT_SALARY_CAP) + SEASON_SALARY_CAP_BONUS;
   });
+
+  if (lobby) {
+    lobby.salaryCap = Number(lobby.salaryCap || DEFAULT_SALARY_CAP) + SEASON_SALARY_CAP_BONUS;
+  }
 
   if (lobby?.leagueType === "Fantasia") {
     draft.schedule = (draft.schedule || []).map((roundMatches) =>
@@ -894,7 +912,12 @@ const shuffleList = (items = [], seed = Date.now()) => {
   return list;
 };
 
-const createQuickTournament = (draft, selectedTeams = [], prize = DEFAULT_QUICK_TOURNAMENT_PRIZE) => {
+const createQuickTournament = (
+  draft,
+  selectedTeams = [],
+  prize = DEFAULT_QUICK_TOURNAMENT_PRIZE,
+  runnerUpPrize = DEFAULT_QUICK_TOURNAMENT_RUNNER_UP_PRIZE
+) => {
   const bracketSize = Math.max(2, nextPowerOfTwo(selectedTeams.length));
   const participants = [...selectedTeams];
   while (participants.length < bracketSize) {
@@ -946,6 +969,7 @@ const createQuickTournament = (draft, selectedTeams = [], prize = DEFAULT_QUICK_
     rounds,
     championKey: "",
     prize: Number(prize) || 0,
+    runnerUpPrize: Number(runnerUpPrize) || 0,
     prizePaid: false,
   };
 };
@@ -1783,7 +1807,7 @@ app.post("/lobbies", async (req, res) => {
     managers: maxManagers,
     format: req.body.format || "Normal",
     leagueType: req.body.leagueType || "Real",
-    money: Number(req.body.money) || 100,
+    money: Number(req.body.money) || 220,
     salaryCap,
     champions: Boolean(req.body.champions),
     fillCpuTeams: req.body.fillCpuTeams !== false,
@@ -2997,7 +3021,7 @@ app.post("/drafts/:code/finish-playoff", (req, res) => {
 
 app.post("/drafts/:code/quick-tournament", (req, res) => {
   const code = String(req.params.code).trim();
-  const { username, teamKeys = [], prize } = req.body;
+  const { username, teamKeys = [], prize, runnerUpPrize } = req.body;
   const draft = ensureDraft(code);
   const lobby = lobbies.get(code);
 
@@ -3014,11 +3038,16 @@ app.post("/drafts/:code/quick-tournament", (req, res) => {
     return res.status(400).json({ error: "Selecciona al menos 2 clubes reales" });
   }
 
-  createQuickTournament(draft, selectedTeams, Number(prize) || DEFAULT_QUICK_TOURNAMENT_PRIZE);
+  createQuickTournament(
+    draft,
+    selectedTeams,
+    Number(prize) || DEFAULT_QUICK_TOURNAMENT_PRIZE,
+    Number(runnerUpPrize) || DEFAULT_QUICK_TOURNAMENT_RUNNER_UP_PRIZE
+  );
   addNews(
     draft,
     code,
-    `Liga UFL: el organizador creo un torneo rapido con ${selectedTeams.length} clubes reales y premio de ${formatMoney(Number(prize) || DEFAULT_QUICK_TOURNAMENT_PRIZE)}`
+    `Liga UFL: el organizador creo un torneo rapido con ${selectedTeams.length} clubes reales | campeon ${formatMoney(Number(prize) || DEFAULT_QUICK_TOURNAMENT_PRIZE)} | subcampeon ${formatMoney(Number(runnerUpPrize) || DEFAULT_QUICK_TOURNAMENT_RUNNER_UP_PRIZE)}`
   );
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
