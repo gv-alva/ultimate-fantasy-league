@@ -700,6 +700,26 @@ body {
   color: #f8fafc;
 }
 
+.league-stats-grid small.stat-win,
+.club-summary-stats small.stat-win {
+  color: #86efac;
+}
+
+.league-stats-grid small.stat-win b,
+.club-summary-stats small.stat-win b {
+  color: #22c55e;
+}
+
+.league-stats-grid small.stat-loss,
+.club-summary-stats small.stat-loss {
+  color: #fca5a5;
+}
+
+.league-stats-grid small.stat-loss b,
+.club-summary-stats small.stat-loss b {
+  color: #ef4444;
+}
+
 .league-points {
   align-self: center;
   white-space: nowrap;
@@ -1083,14 +1103,6 @@ body {
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
-.news-item-unread {
-  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.18);
-}
-
-.news-item-read {
-  opacity: 0.72;
-}
-
 .news-item-romano {
   border-color: rgba(34, 197, 94, 0.35);
   background: linear-gradient(180deg, rgba(34, 197, 94, 0.16), #1e293b 42%);
@@ -1155,13 +1167,6 @@ body {
   margin-bottom: 4px;
 }
 
-.news-item-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-}
-
 .news-read-btn {
   width: 28px;
   height: 28px;
@@ -1174,7 +1179,14 @@ body {
   flex-shrink: 0;
 }
 
-.news-read-btn.is-read {
+.inbox-item-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.inbox-read-btn.is-read {
   background: rgba(34, 197, 94, 0.18);
   border-color: rgba(34, 197, 94, 0.38);
   color: #86efac;
