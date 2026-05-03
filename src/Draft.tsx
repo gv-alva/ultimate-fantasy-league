@@ -3,7 +3,7 @@ import faunaAvatar from "./assets/fauna.webp";
 import romanoAvatar from "./assets/romano.jpg";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
-const UI_VERSION = "0.908";
+const UI_VERSION = "0.909";
 const TEAM_SIZE_TARGET = 20;
 
 type Tab = "Inicio" | "Club" | "Liga" | "Transferencia";
@@ -596,6 +596,13 @@ const createSponsor = (_owner: string, index: number): Sponsor => {
   };
 };
 
+const getNewsKey = (item: NewsEntry, index: number) => `${item.text}-${item.createdAt || index}`;
+const shouldDisplayNewsItem = (item: NewsEntry) =>
+  !/^Liga UFL: jugador del partido /i.test(item.text) &&
+  !/^Liga UFL: patrocinador de /i.test(item.text) &&
+  !/^Liga UFL: tarjetas /i.test(item.text) &&
+  !/^Liga UFL: .+ anoto \d+ gol\(es\) para /i.test(item.text);
+
 const hashNumber = (value: number) => {
   let hash = value >>> 0;
   hash ^= hash << 13;
@@ -906,15 +913,16 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [championOverlay, setChampionOverlay] = useState<ChampionOverlayState | null>(null);
   const [clubAnnouncement, setClubAnnouncement] = useState<ClubAnnouncement | null>(null);
   const [readInboxIds, setReadInboxIds] = useState<string[]>([]);
+  const [readNewsKeys, setReadNewsKeys] = useState<string[]>([]);
   const [hasUnreadInicio, setHasUnreadInicio] = useState(false);
   const seenChampionCelebrationRef = useRef("");
   const knownNewsKeysRef = useRef<Set<string>>(new Set());
   const knownInboxIdsRef = useRef<Set<string>>(new Set());
 
   const applyDraftPayload = (draft: DraftEvent) => {
-    const incomingNews = draft.news || [];
+    const incomingNews = (draft.news || []).filter(shouldDisplayNewsItem);
     const incomingInbox = draft.inbox?.[currentUser] || [];
-    const incomingNewsKeys = incomingNews.map((item, index) => `${item.text}-${item.createdAt || index}`);
+    const incomingNewsKeys = incomingNews.map((item, index) => getNewsKey(item, index));
     const incomingInboxIds = incomingInbox.map((item) => item.id);
     const newNewsKeys = incomingNewsKeys.filter((key) => !knownNewsKeysRef.current.has(key));
     const newInboxItems = incomingInbox.filter((item) => !knownInboxIdsRef.current.has(item.id));
@@ -937,6 +945,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       }
     } else {
       setReadInboxIds(incomingInboxIds);
+      setReadNewsKeys(incomingNewsKeys);
     }
 
     knownNewsKeysRef.current = new Set(incomingNewsKeys);
@@ -971,7 +980,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     });
     setOffers(draft.offers || []);
     setPendingSignings(draft.pendingSignings || []);
-    setNews(draft.news || []);
+    setNews((draft.news || []).filter(shouldDisplayNewsItem));
     setLeagueMatchCount(draft.leagueMatchCount || 0);
     setRegularSeasonComplete(Boolean(draft.regularSeasonComplete));
     setSeasonChampionKey(draft.seasonChampionKey || "");
@@ -1046,6 +1055,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setChampionOverlay(null);
     setClubAnnouncement(null);
     setReadInboxIds([]);
+    setReadNewsKeys([]);
     setHasUnreadInicio(false);
     seenChampionCelebrationRef.current = "";
     knownNewsKeysRef.current = new Set();
@@ -1368,6 +1378,8 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   ).length;
   const myPendingSignings = pendingSignings.filter((signing) => signing.owner === currentUser);
   const myInbox = inbox[currentUser] || [];
+  const filteredNews = news.filter(shouldDisplayNewsItem);
+  const unreadNewsCount = filteredNews.filter((item, index) => !readNewsKeys.includes(getNewsKey(item, index))).length;
   const unreadInboxCount = myInbox.filter((item) => !readInboxIds.includes(item.id)).length;
   const currentPayroll =
     currentTeam?.salaryUsed ??
@@ -1382,10 +1394,15 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     : currentTeamPlayers;
   const standingsNameByKey = new Map(displayStandings.map((team) => [team.key, team.name]));
   cpuTeams.forEach((team) => standingsNameByKey.set(team.key, team.name));
+
+  useEffect(() => {
+    setHasUnreadInicio(unreadNewsCount > 0 || unreadInboxCount > 0);
+  }, [unreadNewsCount, unreadInboxCount]);
+
   const visibleRounds = settings.leagueType === "Fantasia"
     ? schedule.slice(visibleRoundStart - 1, visibleRoundStart + 4)
     : [];
-  const groupedNews = news.reduce<Array<{ day: string; items: NewsEntry[] }>>((groups, item) => {
+  const groupedNews = filteredNews.reduce<Array<{ day: string; items: NewsEntry[] }>>((groups, item) => {
     const day = getNewsDayLabel(item);
     const existingGroup = groups.find((group) => group.day === day);
     if (existingGroup) {
@@ -2141,19 +2158,17 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       isOrganizer
     );
 
-  const markInboxAsRead = () => {
-    setReadInboxIds(myInbox.map((item) => item.id));
+  const markNewsAsRead = (newsKey: string) => {
+    setReadNewsKeys((currentKeys) => (currentKeys.includes(newsKey) ? currentKeys : [...currentKeys, newsKey]));
   };
 
   const openInbox = () => {
+    setReadInboxIds(myInbox.map((item) => item.id));
     setShowInbox(true);
   };
 
   const handleTabChange = (tab: Tab) => {
     setActiveTab(tab);
-    if (tab === "Inicio") {
-      setHasUnreadInicio(false);
-    }
   };
 
   const submitPlayoffResult = async (stage: "semifinal1" | "semifinal2" | "final") => {
@@ -2507,13 +2522,28 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
               const author = getNewsAuthor(item);
               const tone = getNewsTone(item);
               const avatarImage = getNewsAvatarImage(item);
+              const newsKey = getNewsKey(item, index);
+              const isRead = readNewsKeys.includes(newsKey);
               return (
-                <article key={`${item.text}-${item.createdAt || index}`} className={`news-item news-item-${tone}`}>
+                <article
+                  key={newsKey}
+                  className={`news-item news-item-${tone} ${isRead ? "news-item-read" : "news-item-unread"}`}
+                >
                   <div className={`news-avatar news-avatar-${tone}`}>
                     {avatarImage ? <img src={avatarImage} alt={author} /> : author.slice(0, 1)}
                   </div>
                   <div>
-                    <strong>{author}</strong>
+                    <div className="news-item-header">
+                      <strong>{author}</strong>
+                      <button
+                        className={`news-read-btn ${isRead ? "is-read" : ""}`}
+                        onClick={() => markNewsAsRead(newsKey)}
+                        aria-label={isRead ? "Noticia leida" : "Marcar noticia como leida"}
+                        title={isRead ? "Noticia leida" : "Marcar como leida"}
+                      >
+                        <span>✓</span>
+                      </button>
+                    </div>
                     <p>{getNewsText(item)}</p>
                     <div className="news-meta">
                       <span>{engagement.likes} likes</span>
@@ -3627,11 +3657,6 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
             <button className="modal-close" onClick={() => setShowInbox(false)}>Cerrar</button>
             <div className="inbox-header-row">
               <h2>Buzon del club</h2>
-              {myInbox.length > 0 && (
-                <button className="small-action" onClick={markInboxAsRead}>
-                  MARCAR TODO LEIDO
-                </button>
-              )}
             </div>
             <div className="offers-panel">
               {myInbox.length === 0 && <div className="draft-empty-state">No tienes avisos nuevos.</div>}

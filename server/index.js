@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.908";
+const SERVER_VERSION = "v0.909";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1500;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -48,6 +48,14 @@ const randomEventTemplates = [
   "salio golpeado de una practica",
   "quedo tocado por una gripe fuerte",
   "sufrio una contractura de ultimo minuto",
+];
+
+const injuryTemplates = [
+  "sufrio una lesion muscular",
+  "se resintio del tobillo",
+  "termino con una sobrecarga fuerte",
+  "salio lastimado de la rodilla",
+  "recibio un golpe y quedo descartado",
 ];
 
 const generatedClubNames = [
@@ -849,6 +857,7 @@ const resetLeagueForNewSeason = (draft, lobby) => {
   draft.regularSeasonComplete = false;
   draft.lastInjuryTriggerMatch = 0;
   draft.lastInjuryTriggerMatchByTeam = {};
+  draft.lastScheduledInjuryMatchByTeam = {};
   draft.visibleRoundStart = 1;
   draft.seasonWinnerAnnounced = false;
   draft.seasonChampionKey = "";
@@ -1297,11 +1306,14 @@ const maybeAdvanceFantasyRoundBlock = (draft, lobby, code) => {
 };
 
 const syncUnavailablePlayers = (draft) => {
-  Object.values(draft.teams).forEach((team) => {
+  const standingsMap = new Map((draft.standings || []).map((team) => [team.key, Number(team.played || 0)]));
+
+  Object.entries(draft.teams).forEach(([owner, team]) => {
+    const teamPlayed = standingsMap.get(owner) || 0;
     team.squad = team.squad.map((player) => {
       if (
         player.unavailableUntilMatch &&
-        Number(player.unavailableUntilMatch) <= Number(draft.leagueMatchCount || 0)
+        Number(player.unavailableUntilMatch) <= teamPlayed
       ) {
         const nextPlayer = { ...player };
         delete nextPlayer.unavailableUntilMatch;
@@ -1314,62 +1326,82 @@ const syncUnavailablePlayers = (draft) => {
   });
 };
 
-const maybeTriggerRandomEvent = (code, draft) => {
-  if (!draft.randomEvents) return null;
+const applyUnavailablePlayerToTeam = (draft, code, owner, reason, source = "event") => {
+  const team = draft.teams?.[owner];
+  if (!team?.squad?.length) return null;
+  const standingsMap = new Map((draft.standings || []).map((team) => [team.key, Number(team.played || 0)]));
+  const teamPlayed = standingsMap.get(owner) || 0;
+  const availablePlayers = team.squad.filter(
+    (player) => !player.unavailableUntilMatch || Number(player.unavailableUntilMatch) <= teamPlayed
+  );
 
-  if (!draft.lastInjuryTriggerMatchByTeam) {
-    draft.lastInjuryTriggerMatchByTeam = {};
+  if (availablePlayers.length === 0) return null;
+
+  const player = availablePlayers[Math.floor(Math.random() * availablePlayers.length)];
+  const unavailableUntilMatch = teamPlayed + 2;
+
+  team.squad = team.squad.map((item) =>
+    item.ID === player.ID
+      ? {
+          ...item,
+          unavailableUntilMatch,
+          unavailableReason: reason,
+        }
+      : item
+  );
+
+  if (!draft.inbox[owner]) {
+    draft.inbox[owner] = [];
+  }
+
+  const inboxItem = {
+    id: `${source}-${code}-${owner}-${player.ID}-${teamPlayed}-${Date.now()}`,
+    title: `${player.Name} no estara disponible`,
+    body: `${player.Name} ${reason}. Estara fuera por 2 partidos de ${team.name}.`,
+    matchUntil: unavailableUntilMatch,
+    playerId: player.ID,
+  };
+
+  draft.inbox[owner].unshift(inboxItem);
+  addNews(draft, code, `Fabrizio Romano: ${player.Name} ${reason} y sera baja de ${team.name} por 2 partidos`);
+  return inboxItem;
+};
+
+const maybeTriggerScheduledInjuries = (code, draft, owners = []) => {
+  if (!draft.lastScheduledInjuryMatchByTeam) {
+    draft.lastScheduledInjuryMatchByTeam = {};
   }
 
   const standingsMap = new Map((draft.standings || []).map((team) => [team.key, Number(team.played || 0)]));
   const inboxItems = [];
 
-  Object.entries(draft.teams || {}).forEach(([owner, team]) => {
+  owners.forEach((owner) => {
+    const team = draft.teams?.[owner];
     const teamPlayed = standingsMap.get(owner) || 0;
-    if (teamPlayed === 0 || teamPlayed % 2 !== 0) return;
-    if (Number(draft.lastInjuryTriggerMatchByTeam[owner] || 0) >= teamPlayed) return;
-    if (!team?.squad?.length) return;
+    if (!team || teamPlayed === 0 || teamPlayed % 2 !== 0) return;
+    if (Number(draft.lastScheduledInjuryMatchByTeam[owner] || 0) >= teamPlayed) return;
 
-    const availablePlayers = team.squad.filter(
-      (player) => !player.unavailableUntilMatch || Number(player.unavailableUntilMatch) <= teamPlayed
-    );
-
-    if (availablePlayers.length === 0) return;
-
-    const player = availablePlayers[Math.floor(Math.random() * availablePlayers.length)];
-    const reason = randomEventTemplates[Math.floor(Math.random() * randomEventTemplates.length)];
-    const unavailableUntilMatch = teamPlayed + 2;
-
-    team.squad = team.squad.map((item) =>
-      item.ID === player.ID
-        ? {
-            ...item,
-            unavailableUntilMatch,
-            unavailableReason: reason,
-          }
-        : item
-    );
-
-    if (!draft.inbox[owner]) {
-      draft.inbox[owner] = [];
+    const reason = injuryTemplates[Math.floor(Math.random() * injuryTemplates.length)];
+    const inboxItem = applyUnavailablePlayerToTeam(draft, code, owner, reason, "injury");
+    if (inboxItem) {
+      draft.lastScheduledInjuryMatchByTeam[owner] = teamPlayed;
+      inboxItems.push(inboxItem);
     }
-
-    draft.lastInjuryTriggerMatchByTeam[owner] = teamPlayed;
-
-    const inboxItem = {
-      id: `event-${code}-${owner}-${player.ID}-${teamPlayed}`,
-      title: `${player.Name} no estara disponible`,
-      body: `${player.Name} ${reason}. Estara fuera por 2 partidos de ${team.name}.`,
-      matchUntil: unavailableUntilMatch,
-      playerId: player.ID,
-    };
-
-    draft.inbox[owner].unshift(inboxItem);
-    inboxItems.push(inboxItem);
-    addNews(draft, code, `Fabrizio Romano: ${player.Name} ${reason} y sera baja de ${team.name} por 2 partidos`);
   });
 
   return inboxItems;
+};
+
+const maybeTriggerRandomEvent = (code, draft, owners = []) => {
+  if (!draft.randomEvents || Math.random() > RANDOM_EVENT_PROBABILITY) return null;
+
+  const eligibleOwners = owners.filter((owner) => draft.teams?.[owner]?.squad?.length);
+  if (eligibleOwners.length === 0) return null;
+
+  const owner = eligibleOwners[Math.floor(Math.random() * eligibleOwners.length)];
+  const reason = randomEventTemplates[Math.floor(Math.random() * randomEventTemplates.length)];
+  const inboxItem = applyUnavailablePlayerToTeam(draft, code, owner, reason, "event");
+  return inboxItem ? [inboxItem] : null;
 };
 
 const canAddPlayerToTeam = (team, player, salary = player.salary, amount = player.marketValue) => {
@@ -1618,6 +1650,7 @@ const ensureDraft = (code) => {
       }, {}),
       lastInjuryTriggerMatch: 0,
       lastInjuryTriggerMatchByTeam: {},
+      lastScheduledInjuryMatchByTeam: {},
       standings: [],
       schedule: [],
       playoff: null,
@@ -2784,7 +2817,12 @@ app.post("/drafts/:code/results", (req, res) => {
     ? applySponsorIncome(opponentManagedTeam, scoreB, scoreA, Number(opponentCards) || 0)
     : 0;
   syncUnavailablePlayers(draft);
-  maybeTriggerRandomEvent(code, draft);
+  const affectedOwners = [username];
+  if (opponentManagedTeam?.owner) {
+    affectedOwners.push(opponentManagedTeam.owner);
+  }
+  maybeTriggerScheduledInjuries(code, draft, affectedOwners);
+  maybeTriggerRandomEvent(code, draft, affectedOwners);
   addNews(draft, code, `Liga UFL: ${myTeamName} ${scoreA}-${scoreB} ${opponentName}`);
   addLeagueComment(draft, code, "result", { home: myTeamName, away: opponentName, winner: scoreA > scoreB ? myTeamName : opponentName, loser: scoreA > scoreB ? opponentName : myTeamName });
   addRomanoComment(draft, code, "result", { subject: scoreA > scoreB ? myTeamName : opponentName, rival: scoreA > scoreB ? opponentName : myTeamName });
@@ -2793,22 +2831,6 @@ app.post("/drafts/:code/results", (req, res) => {
       winner: scoreA > scoreB ? myTeamName : opponentName,
       loser: scoreA > scoreB ? opponentName : myTeamName,
     });
-  }
-
-  teamScorers.forEach((row) => {
-    addNews(draft, code, `Liga UFL: ${row.name} anoto ${row.goals} gol(es) para ${myTeamName}`);
-  });
-  opponentScorers.forEach((row) => {
-    addNews(draft, code, `Liga UFL: ${row.name} anoto ${row.goals} gol(es) para ${opponentName}`);
-  });
-  addNews(draft, code, `Liga UFL: tarjetas ${myTeamName} ${teamCards} - ${opponentCards} ${opponentName}`);
-  addNews(draft, code, `Liga UFL: patrocinador de ${myTeamName} ajusto ${formatMoney(mySponsorIncome)} tras el partido`);
-  if (opponentManagedTeam) {
-    addNews(draft, code, `Liga UFL: patrocinador de ${opponentName} ajusto ${formatMoney(opponentSponsorIncome)} tras el partido`);
-  }
-
-  if (mvpPlayerName) {
-    addNews(draft, code, `Liga UFL: jugador del partido ${mvpPlayerName}`);
   }
 
   const myStanding = draft.standings.find((team) => team.name === myTeamName);
