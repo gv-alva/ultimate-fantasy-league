@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v1.0";
+const SERVER_VERSION = "v1.1";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1500;
 const MAX_NEGOTIATION_ATTEMPTS = 3;

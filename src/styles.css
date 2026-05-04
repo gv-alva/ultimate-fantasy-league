@@ -702,7 +702,9 @@ body {
 
 .league-stats-grid small.stat-win,
 .club-summary-stats small.stat-win {
-  color: #86efac;
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.18);
 }
 
 .league-stats-grid small.stat-win b,
@@ -712,7 +714,9 @@ body {
 
 .league-stats-grid small.stat-loss,
 .club-summary-stats small.stat-loss {
-  color: #fca5a5;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.18);
 }
 
 .league-stats-grid small.stat-loss b,

@@ -3,7 +3,7 @@ import faunaAvatar from "./assets/fauna.webp";
 import romanoAvatar from "./assets/romano.jpg";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
-const UI_VERSION = "1.0";
+const UI_VERSION = "1.1";
 const TEAM_SIZE_TARGET = 20;
 
 type Tab = "Inicio" | "Club" | "Liga" | "Transferencia";
@@ -2477,7 +2477,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         {regularSeasonComplete
           ? "Liga regular finalizada | Solo sigue la liguilla"
           : isOrganizer
-            ? `Partidos clubes ${globalLeagueMatchCount}/${totalSeasonMatches} | Restan ${Math.max(totalSeasonMatches - globalLeagueMatchCount, 0)} | ${currentTeam?.name || currentUser} ${currentClubMatchCount}/${matchesPerClub}`
+            ? `Partidos clubes ${globalLeagueMatchCount}/${totalSeasonMatches} | Restan ${Math.max(totalSeasonMatches - globalLeagueMatchCount, 0)} | ${currentTeam?.name || currentUser} ${currentClubMatchCount}/${matchesPerClub} | Restan club ${Math.max(matchesPerClub - currentClubMatchCount, 0)}`
             : `${currentTeam?.name || currentUser} ${currentClubMatchCount}/${matchesPerClub} partidos`}
       </p>
 
