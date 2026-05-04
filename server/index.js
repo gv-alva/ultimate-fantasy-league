@@ -189,6 +189,10 @@ const normalizeUser = (user) => ({
   password: user.password,
 });
 
+const normalizeUsernameInput = (username) => String(username || "").trim();
+
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 const connectMongo = async () => {
   if (!mongoUri || mongoReady) return;
 
@@ -245,24 +249,35 @@ const getStoredUsers = async () => {
 };
 
 const findStoredUserByUsername = async (username) => {
+  const normalizedUsername = normalizeUsernameInput(username);
+  if (!normalizedUsername) return null;
+
   if (mongoReady) {
-    const user = await UserModel.findOne({ username }).lean();
+    const user = await UserModel.findOne({
+      username: { $regex: `^${escapeRegex(normalizedUsername)}$`, $options: "i" },
+    }).lean();
     return user ? normalizeUser(user) : null;
   }
 
   const users = readUsers();
-  return users.find((item) => item.username === username) || null;
+  return (
+    users.find(
+      (item) => normalizeUsernameInput(item.username).toLowerCase() === normalizedUsername.toLowerCase()
+    ) || null
+  );
 };
 
 const createStoredUser = async (username, passwordHash) => {
+  const normalizedUsername = normalizeUsernameInput(username);
+
   if (mongoReady) {
-    const createdUser = await UserModel.create({ username, password: passwordHash });
+    const createdUser = await UserModel.create({ username: normalizedUsername, password: passwordHash });
     return normalizeUser(createdUser.toObject());
   }
 
   const users = readUsers();
   const nextId = users.length === 0 ? 1 : Math.max(...users.map((item) => Number(item.id) || 0)) + 1;
-  const nextUser = { id: nextId, username, password: passwordHash };
+  const nextUser = { id: nextId, username: normalizedUsername, password: passwordHash };
   users.push(nextUser);
   writeUsers(users);
   return nextUser;
@@ -1686,7 +1701,8 @@ app.get("/health", (req, res) => {
 });
 
 app.post("/login", async (req, res) => {
-  const { username, password } = req.body;
+  const username = normalizeUsernameInput(req.body.username);
+  const password = String(req.body.password || "");
   const user = await findStoredUserByUsername(username);
 
   if (!user) {
@@ -1703,7 +1719,8 @@ app.post("/login", async (req, res) => {
 });
 
 app.post("/users", async (req, res) => {
-  const { username, password } = req.body;
+  const username = normalizeUsernameInput(req.body.username);
+  const password = String(req.body.password || "");
 
   if (!username || !password) {
     return res.status(400).json({ error: "Faltan datos del usuario" });
@@ -1726,7 +1743,7 @@ app.get("/users", async (req, res) => {
 });
 
 app.get("/users/:username/leagues", (req, res) => {
-  const username = String(req.params.username || "").trim();
+  const username = normalizeUsernameInput(req.params.username);
 
   if (!username) {
     return res.status(400).json({ error: "Falta el usuario" });
@@ -1747,7 +1764,8 @@ app.get("/users/:username/leagues", (req, res) => {
 
 app.put("/users/:id", async (req, res) => {
   const { id } = req.params;
-  const { username, password } = req.body;
+  const username = normalizeUsernameInput(req.body.username);
+  const password = String(req.body.password || "");
   const storedUsers = await getStoredUsers();
   const currentUser = storedUsers.find((item) => String(item.id) === String(id));
 
@@ -1755,7 +1773,13 @@ app.put("/users/:id", async (req, res) => {
     return res.status(404).json({ error: "Usuario no encontrado" });
   }
 
-  if (storedUsers.some((item) => item.username === username && String(item.id) !== String(id))) {
+  if (
+    storedUsers.some(
+      (item) =>
+        normalizeUsernameInput(item.username).toLowerCase() === username.toLowerCase() &&
+        String(item.id) !== String(id)
+    )
+  ) {
     return res.status(400).json({ error: "Usuario ya existe" });
   }
 

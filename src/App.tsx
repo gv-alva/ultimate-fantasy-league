@@ -53,6 +53,7 @@ type SavedLeague = {
 };
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
+const normalizeUsernameInput = (value: string) => value.trim();
 
 const getLobbyMaxManagers = (lobby: LobbyData) => {
   return lobby.maxManagers || lobby.managers;
@@ -264,13 +265,20 @@ export default function App() {
   }, [screen, lobbyStatus]);
 
   const handleLogin = async () => {
+    const normalizedUsername = normalizeUsernameInput(username);
+
+    if (!normalizedUsername || !password) {
+      alert("Escribe usuario y contrasena");
+      return;
+    }
+
     try {
       const res = await fetch(`${API_URL}/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username: normalizedUsername, password }),
       });
 
       if (!res.ok) {
@@ -280,6 +288,7 @@ export default function App() {
       }
 
       const data = await res.json();
+      setUsername(data.user);
       setCurrentUser(data.user);
       setScreen("dashboard");
     } catch (error) {
