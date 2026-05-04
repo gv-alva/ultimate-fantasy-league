@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import "./styles.css";
 import Draft from "./Draft";
 import Lobby from "./Lobby";
 import logo from "./assets/logo.png";
 
-const APP_VERSION = "0.910";
+const APP_VERSION = "0.911";
 
 type LobbyData = {
   code: string;
@@ -969,3 +969,4 @@ export default function App() {
     </div>
   );
 }
+

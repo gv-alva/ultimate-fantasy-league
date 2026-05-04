@@ -1,9 +1,9 @@
-﻿import { type CSSProperties, type ReactNode, type TouchEvent, useEffect, useMemo, useRef, useState } from "react";
+﻿import { type CSSProperties, type ReactNode,  useEffect, useMemo, useRef, useState } from "react";
 import faunaAvatar from "./assets/fauna.webp";
 import romanoAvatar from "./assets/romano.jpg";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
-const UI_VERSION = "0.910";
+const UI_VERSION = "0.911";
 const TEAM_SIZE_TARGET = 20;
 
 type Tab = "Inicio" | "Club" | "Liga" | "Transferencia";
@@ -873,7 +873,6 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [showStandingEditForm, setShowStandingEditForm] = useState(false);
   const previousServerPhaseRef = useRef<ServerPhase | null>(null);
   const hasHydratedFromEventsRef = useRef(false);
-  const shellTouchStartRef = useRef<{ x: number; y: number } | null>(null);
   const activeTabRef = useRef<Tab>("Inicio");
   const [clubName, setClubName] = useState("");
   const [opponentName, setOpponentName] = useState("");
@@ -926,7 +925,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     const newInboxItems = incomingInbox.filter((item) => !knownInboxIdsRef.current.has(item.id));
 
     if (hasHydratedFromEventsRef.current) {
-      if ((newNewsKeys.length > 0 || newInboxItems.length > 0) && activeTabRef.current !== "Inicio") {
+      if (newNewsKeys.length > 0 && activeTabRef.current !== "Inicio") {
         setHasUnreadInicio(true);
       }
 
@@ -1375,7 +1374,6 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const myPendingSignings = pendingSignings.filter((signing) => signing.owner === currentUser);
   const myInbox = inbox[currentUser] || [];
   const filteredNews = news.filter(shouldDisplayNewsItem);
-  const unreadNewsCount = activeTab === "Inicio" ? 0 : filteredNews.length;
   const unreadInboxCount = myInbox.filter((item) => !readInboxIds.includes(item.id)).length;
   const currentPayroll =
     currentTeam?.salaryUsed ??
@@ -1390,10 +1388,6 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     : currentTeamPlayers;
   const standingsNameByKey = new Map(displayStandings.map((team) => [team.key, team.name]));
   cpuTeams.forEach((team) => standingsNameByKey.set(team.key, team.name));
-
-  useEffect(() => {
-    setHasUnreadInicio(unreadNewsCount > 0 || unreadInboxCount > 0);
-  }, [unreadNewsCount, unreadInboxCount]);
 
   const visibleRounds = settings.leagueType === "Fantasia"
     ? schedule.slice(visibleRoundStart - 1, visibleRoundStart + 4)
@@ -3171,36 +3165,6 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     return renderTransfer();
   };
 
-  const handleShellTouchStart = (event: TouchEvent<HTMLElement>) => {
-    if (showInbox || selectedPlayer || showResultForm || showQuickTournamentForm) return;
-    const touch = event.changedTouches[0];
-    shellTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
-  };
-
-  const handleShellTouchEnd = (event: TouchEvent<HTMLElement>) => {
-    if (!shellTouchStartRef.current || showInbox || selectedPlayer || showResultForm || showQuickTournamentForm) {
-      shellTouchStartRef.current = null;
-      return;
-    }
-
-    const touch = event.changedTouches[0];
-    const deltaX = touch.clientX - shellTouchStartRef.current.x;
-    const deltaY = touch.clientY - shellTouchStartRef.current.y;
-    shellTouchStartRef.current = null;
-
-    if (Math.abs(deltaX) < 70 || Math.abs(deltaX) <= Math.abs(deltaY) * 1.2) {
-      return;
-    }
-
-    if (deltaX < 0 && activeTabIndex < tabs.length - 1) {
-      handleTabChange(tabs[activeTabIndex + 1]);
-    }
-
-    if (deltaX > 0 && activeTabIndex > 0) {
-      handleTabChange(tabs[activeTabIndex - 1]);
-    }
-  };
-
   if (serverPhase === "selection") {
     return renderSelection();
   }
@@ -3248,7 +3212,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         ))}
       </nav>
 
-      <section onTouchStart={handleShellTouchStart} onTouchEnd={handleShellTouchEnd}>
+      <section>
         {renderPanel()}
       </section>
 
@@ -3704,5 +3668,9 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     </main>
   );
 }
+
+
+
+
 
 

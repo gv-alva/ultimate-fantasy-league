@@ -1,4 +1,4 @@
-const express = require("express");
+﻿const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const fs = require("fs");
@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v0.910";
+const SERVER_VERSION = "v0.911";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1500;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -543,7 +543,7 @@ const addFaunaComment = (draft, code, type, context = {}) => {
       `Fabritzio Fauna: ${player} ya tiene nuevo techo. El exclub se quedo viendo como se le iba el tren.`,
       `Fabritzio Fauna: Este fichaje trae humo, drama y egos heridos. Justo como nos gusta.`,
       `Fabritzio Fauna: Movimiento oficial. Unos trabajan el mercado y otros nomas hacen fila para el ridiculo.`,
-      `Fabritzio Fauna: Sacaron a ${player} de un club que negocio como si tuviera sueño.`,
+      `Fabritzio Fauna: Sacaron a ${player} de un club que negocio como si tuviera sueÃ±o.`,
       `Fabritzio Fauna: Hay directivos que parecen tiburones y otros que parecen cajeros descompuestos. Este movimiento lo demostro.`,
       `Fabritzio Fauna: ${player} cambio de camiseta y dejo atras un despacho que olia a improvisacion.`,
       `Fabritzio Fauna: Se movio ${player} y al club vendedor le vieron la cara bonito.`,
@@ -3204,3 +3204,4 @@ connectMongo().finally(() => {
     console.log(`Servidor corriendo en http://localhost:${PORT}`);
   });
 });
+
