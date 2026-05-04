@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v1.1";
+const SERVER_VERSION = "v1.2";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1500;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -531,69 +531,118 @@ const addFaunaComment = (draft, code, type, context = {}) => {
   const winner = context.winner || "Ese club";
   const loser = context.loser || context.rival || "el rival";
   const player = context.player || "ese jugador";
-  const commentsByType = {
-    result: [
-      `Fabritzio Fauna: ${winner} le pego un baile sabroso a ${loser}. Que no revisen menciones por unas horas.`,
-      `Fabritzio Fauna: Partido terminado y ${loser} quedo con cara de que se le apago el wifi del cerebro.`,
-      `Fabritzio Fauna: ${winner} salio a jugar futbol y ${loser} salio a estorbar. Dura pero justa.`,
-      `Fabritzio Fauna: Lo de ${loser} fue una falta de respeto al balon. ${winner} apenas sudo.`,
-      `Fabritzio Fauna: ${winner} paso por encima y ${loser} mejor que eche la culpa al pasto.`,
-      `Fabritzio Fauna: Marcador oficial y ${loser} queda retratado. Que noche tan tiesa.`,
-      `Fabritzio Fauna: ${winner} repartio cachetadas futbolisticas y ${loser} ni metio las manos.`,
-      `Fabritzio Fauna: Si ${loser} queria competir tenia que avisar. ${winner} lo paseo sin pedir permiso.`,
-      `Fabritzio Fauna: Resultado firmado. ${loser} defendio como puerta de cantina y asi le fue.`,
-      `Fabritzio Fauna: ${winner} jugo serio y ${loser} hizo cosplay de cono.`,
-      `Fabritzio Fauna: ${loser} fue una caricatura competitiva. ${winner} ni tuvo que despeinarse.`,
-      `Fabritzio Fauna: Lo de ${loser} fue futbol de emergencia. ${winner} lo desarmo con una mano en la cintura.`,
-      `Fabritzio Fauna: ${winner} le dio un repaso obsceno a ${loser}. Eso ya no fue partido, fue humillacion con acta.`,
-      `Fabritzio Fauna: Si ${loser} entreno para esto, mejor que pidan reembolso.`,
-      `Fabritzio Fauna: ${winner} se los comio vivos y ${loser} quedo como decoracion de la jornada.`,
-    ],
-    transfer: [
-      `Fabritzio Fauna: Movimiento picante. En un club celebran y en otro andan contando monedas con lagrimas.`,
-      `Fabritzio Fauna: Fichaje cerrado y mas de uno ya esta rezando para que no salga mal, porque pinta a novela.`,
-      `Fabritzio Fauna: ${player} cambio de aire y en el club que lo perdio quedaron mascando coraje.`,
-      `Fabritzio Fauna: Mercado encendido. Hay directivos negociando como cracks y otros como si compraran a ciegas.`,
-      `Fabritzio Fauna: Operacion hecha. Si sale mal, al que firmo esto lo van a querer esconder debajo del escritorio.`,
-      `Fabritzio Fauna: ${player} ya tiene nuevo techo. El exclub se quedo viendo como se le iba el tren.`,
-      `Fabritzio Fauna: Este fichaje trae humo, drama y egos heridos. Justo como nos gusta.`,
-      `Fabritzio Fauna: Movimiento oficial. Unos trabajan el mercado y otros nomas hacen fila para el ridiculo.`,
-      `Fabritzio Fauna: Sacaron a ${player} de un club que negocio como si tuviera sueÃ±o.`,
-      `Fabritzio Fauna: Hay directivos que parecen tiburones y otros que parecen cajeros descompuestos. Este movimiento lo demostro.`,
-      `Fabritzio Fauna: ${player} cambio de camiseta y dejo atras un despacho que olia a improvisacion.`,
-      `Fabritzio Fauna: Se movio ${player} y al club vendedor le vieron la cara bonito.`,
-    ],
-    clause: [
-      `Fabritzio Fauna: HACHAZO total. ${player} salio volando y en el otro club quedaron viendo al techo.`,
-      `Fabritzio Fauna: HACHAZO en toda regla. La caja registradora sono y el vestidor rival quedo helado.`,
-      `Fabritzio Fauna: Clausulazo brutal. Se llevaron a ${player} y al exclub le dejaron puro eco en el vestidor.`,
-      `Fabritzio Fauna: Le arrancaron a ${player} de las manos. Eso no fue mercado, fue atraco con recibo.`,
-      `Fabritzio Fauna: ${player} se fue por clausula y al otro lado quedaron mas dolidos que dignos.`,
-      `Fabritzio Fauna: Le metieron la mano al club rival y ni tiempo les dio de hacerse los ofendidos.`,
-      `Fabritzio Fauna: ${player} cambio de escudo por clausula. El otro club hizo berrinche, pero tarde.`,
-      `Fabritzio Fauna: Se escucho el HACHAZO desde la otra conferencia. Vaya manera de quitarles a ${player}.`,
-      `Fabritzio Fauna: Le arrancaron a ${player} como quien le quita el plato a alguien distraido. El otro club quedo pintado.`,
-      `Fabritzio Fauna: Clausula pagada y papelon consumado. Al exclub lo zarandearon sin misericordia.`,
-      `Fabritzio Fauna: Lo de ${player} por clausula fue un robo elegante. El rival ni metio las manos.`,
-    ],
-    training: [
-      `Fabritzio Fauna: ${player} entreno y ahora mete mas miedo que varios titulares de adorno.`,
-      `Fabritzio Fauna: Mejoraron a ${player}. Ojo, porque otros clubes siguen durmiendo la siesta tactica.`,
-      `Fabritzio Fauna: ${player} subio de nivel mientras media liga sigue entrenando con tutoriales rotos.`,
-    ],
-    offerRejected: [
-      `Fabritzio Fauna: ${loser} fue a negociar y salio bateado. Lo mandaron de regreso con las manos vacias y la dignidad en oferta.`,
-      `Fabritzio Fauna: Rechazaron a ${loser} como si hubiera llegado con billetes del Monopoly. Papelito brutal.`,
-      `Fabritzio Fauna: ${loser} quiso sacar a ${player} y termino haciendo el ridiculo en la puerta del club rival.`,
-      `Fabritzio Fauna: A ${loser} le cerraron la puerta en la cara. Oferta rechazada y orgullo raspado.`,
-      `Fabritzio Fauna: ${loser} fue por ${player} y lo devolvieron como paquete mal dirigido. Mercado cruel.`,
-    ],
+  const faunaFragments = {
+    result: {
+      opener: [
+        `Fabritzio Fauna: ${winner} le paso por encima a ${loser}.`,
+        `Fabritzio Fauna: Partido terminado y ${loser} quedo retratado.`,
+        `Fabritzio Fauna: ${winner} se paseo a ${loser} sin pedir permiso.`,
+        `Fabritzio Fauna: ${loser} salio a competir y termino haciendo bulto frente a ${winner}.`,
+        `Fabritzio Fauna: Resultado firmado y ${loser} quedo viendo como ${winner} le pintaba la cara.`,
+      ],
+      middle: [
+        `${loser} defendio como puerta de cantina.`,
+        `${loser} jugo con la intensidad de una siesta mal tomada.`,
+        `${loser} parecia armado con conos y buena fe.`,
+        `${loser} ofrecio una actuacion para esconder el video.`,
+        `${loser} dejo claro que el balon no era su amigo hoy.`,
+        `${loser} tuvo reflejos de estatua y criterio de semaforo fundido.`,
+      ],
+      closer: [
+        `Que no revisen menciones por unas horas.`,
+        `Si entrenaron para esto, mejor pidan reembolso.`,
+        `Hoy no perdieron un partido, perdieron la poca verguenza competitiva.`,
+        `Eso ya no fue derrota, fue auditoria futbolistica.`,
+        `Lo mejor que puede hacer ${loser} es apagar notificaciones.`,
+      ],
+    },
+    transfer: {
+      opener: [
+        `Fabritzio Fauna: ${player} cambio de aires y el mercado volvió a arder.`,
+        `Fabritzio Fauna: Operacion cerrada con ${player} y varios directivos ya tiemblan.`,
+        `Fabritzio Fauna: ${winner} se movio por ${player} y dejó a media liga mascando coraje.`,
+        `Fabritzio Fauna: Mercado encendido, ${player} ya no duerme en el mismo escudo.`,
+      ],
+      middle: [
+        `En un club celebran y en otro cuentan monedas con lagrimas.`,
+        `El despacho que lo perdio negocio como si tuviera sueno.`,
+        `Se nota quien trabaja el mercado y quien firma con los ojos cerrados.`,
+        `Al vendedor le vieron la cara bonito y encima sonrio para la foto.`,
+        `Esto huele a drama, humo y egos rotos, justo como nos gusta.`,
+      ],
+      closer: [
+        `Si sale mal, al que autorizo eso lo van a esconder debajo del escritorio.`,
+        `Varios directivos acaban de quedar como cajeros descompuestos.`,
+        `La operacion es oficial y el ridiculo de algunos tambien.`,
+        `Unos pescan tiburones y otros se ahogan en un charco.`,
+      ],
+    },
+    clause: {
+      opener: [
+        `Fabritzio Fauna: HACHAZO total con ${player}.`,
+        `Fabritzio Fauna: Clausulazo brutal por ${player}.`,
+        `Fabritzio Fauna: Le arrancaron a ${player} al rival con un hachazo limpio.`,
+        `Fabritzio Fauna: Sono la caja y ${player} salio por clausula.`,
+      ],
+      middle: [
+        `${loser} quedo viendo al techo con cara de velorio.`,
+        `Al exclub le dejaron puro eco en el vestidor.`,
+        `Eso no fue mercado, fue atraco con recibo y firma.`,
+        `El rival ni metio las manos y encima salio peinado.`,
+        `Le quitaron el plato de la mesa a ${loser} y ni cuenta se dio.`,
+      ],
+      closer: [
+        `Papelon consumado para el otro lado.`,
+        `Que no se hagan los ofendidos, los desarmaron bonito.`,
+        `Desde la otra conferencia se escucho el berrinche.`,
+        `Lo de hoy fue robo elegante con aplausos.`,
+      ],
+    },
+    training: {
+      opener: [
+        `Fabritzio Fauna: ${player} entreno y subio de nivel.`,
+        `Fabritzio Fauna: Mejoraron a ${player} y ahora mete mas respeto.`,
+        `Fabritzio Fauna: ${winner} se puso serio y pulio a ${player}.`,
+      ],
+      middle: [
+        `Mientras unos trabajan, media liga sigue entrenando con tutoriales rotos.`,
+        `Hay clubes afinando talento y otros coleccionando excusas.`,
+        `Se nota cuando un equipo entrena de verdad y no por compromiso.`,
+      ],
+      closer: [
+        `Ojo, porque varios rivales siguen dormidos.`,
+        `Luego no lloren cuando el mejorado les pinte la cara.`,
+        `La diferencia entre proyecto y circo se empieza a notar.`,
+      ],
+    },
+    offerRejected: {
+      opener: [
+        `Fabritzio Fauna: ${loser} fue por ${player} y salio bateado.`,
+        `Fabritzio Fauna: Rechazaron a ${loser} sin anestesia.`,
+        `Fabritzio Fauna: ${loser} quiso negociar a ${player} y termino haciendo fila para el ridiculo.`,
+        `Fabritzio Fauna: A ${loser} le cerraron la puerta en la cara por ${player}.`,
+      ],
+      middle: [
+        `Lo mandaron de vuelta con las manos vacias y el orgullo arrugado.`,
+        `Parecia que habia llegado con billetes del Monopoly.`,
+        `La oferta dio más pena que miedo.`,
+        `El otro club apenas vio los números y casi se ríe en su cara.`,
+        `Eso no fue negociación, fue una invitación al rechazo.`,
+      ],
+      closer: [
+        `Mercado cruel, pero merecido.`,
+        `Que vaya a practicar antes de volver a tocar esa puerta.`,
+        `Hoy no compraron a nadie, pero sí compraron pena ajena.`,
+        `Si eso era una oferta seria, mejor que entreguen la calculadora.`,
+      ],
+    },
   };
 
-  const options = commentsByType[type] || commentsByType.transfer;
-  const hashBase = `${type}:${context.player || ""}:${context.winner || ""}:${Date.now()}`;
-  const index = Math.abs(hashBase.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0)) % options.length;
-  addNews(draft, code, options[index]);
+  const family = faunaFragments[type] || faunaFragments.transfer;
+  const line = [pickRandom(family.opener), pickRandom(family.middle), pickRandom(family.closer)]
+    .filter(Boolean)
+    .join(" ");
+  addNews(draft, code, line);
 };
 
 const getDraftPlayerById = (draft, playerId) => {
@@ -2744,6 +2793,32 @@ app.post("/drafts/:code/start-season", (req, res) => {
   draft.regularSeasonComplete = false;
   draft.seasonWinnerAnnounced = false;
   addNews(draft, code, "Liga UFL: el periodo de transferencias termino y la liga comenzo.");
+  sendDraftUpdate(code);
+  res.json(getDraftPayload(code));
+});
+
+app.post("/drafts/:code/reopen-market", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username } = req.body;
+  const draft = ensureDraft(code);
+  const lobby = lobbies.get(code);
+
+  if (!draft || !lobby) {
+    return res.status(404).json({ error: "Draft no encontrado" });
+  }
+
+  if (lobby.creator !== username) {
+    return res.status(403).json({ error: "Solo el organizador puede habilitar transferencias" });
+  }
+
+  if (draft.regularSeasonComplete) {
+    return res.status(400).json({ error: "La liga regular ya termino. Solo queda cerrar la liguilla" });
+  }
+
+  draft.phase = "market";
+  draft.transferWindowId = Number(draft.transferWindowId || 0) + 1;
+  addNews(draft, code, "Liga UFL: el organizador reactivo manualmente el mercado de transferencias.");
+  addLeagueComment(draft, code, "transfer", { team: lobby.creator });
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });

@@ -3,7 +3,7 @@ import faunaAvatar from "./assets/fauna.webp";
 import romanoAvatar from "./assets/romano.jpg";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
-const UI_VERSION = "1.1";
+const UI_VERSION = "1.2";
 const TEAM_SIZE_TARGET = 20;
 
 type Tab = "Inicio" | "Club" | "Liga" | "Transferencia";
@@ -2217,6 +2217,28 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     }
   };
 
+  const reopenTransferWindow = async () => {
+    const response = await fetch(`${API_URL}/drafts/${leagueCode}/reopen-market`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ username: currentUser }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      alert(errorData?.error || "No se pudieron habilitar las transferencias");
+      return;
+    }
+
+    const payload = (await response.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
+    }
+    alert("Mercado reactivado manualmente.");
+  };
+
   const finishRegularSeason = async () => {
     const confirmed = window.confirm(
       "Esto cerrara la liga regular, repartira el premio de liga y dejara activa solo la liguilla. ¿Quieres continuar?"
@@ -3035,17 +3057,17 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         </>
       )}
 
-      {phase === "market" && (
-        <>
-          {isOrganizer && (
-            <button className="btn btn-login compact-btn" onClick={finishTransferWindow}>
-              FINALIZAR PERIODO Y COMENZAR LIGA
-            </button>
-          )}
-          <div className="offer-switch">
-            <button className={offerView === "recibidas" ? "active" : ""} onClick={() => setOfferView("recibidas")}>
-              Ofertas recibidas
-            </button>
+        {phase === "market" && (
+          <>
+            {isOrganizer && (
+              <button className="btn btn-login compact-btn" onClick={finishTransferWindow}>
+                FINALIZAR PERIODO Y COMENZAR LIGA
+              </button>
+            )}
+            <div className="offer-switch">
+              <button className={offerView === "recibidas" ? "active" : ""} onClick={() => setOfferView("recibidas")}>
+                Ofertas recibidas
+              </button>
             <button className={offerView === "enviadas" ? "active" : ""} onClick={() => setOfferView("enviadas")}>
               Ofertas enviadas
             </button>
@@ -3182,13 +3204,18 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         </>
       )}
 
-      {phase !== "auction" && phase !== "market" && !transferWindowOpen && !regularSeasonComplete && (
-        <div className="draft-empty-state">
-          El mercado se abre al inicio y en la mitad de temporada.
-        </div>
-      )}
-    </section>
-  );
+        {phase !== "auction" && phase !== "market" && !transferWindowOpen && !regularSeasonComplete && (
+          <div className="draft-empty-state">
+            El mercado se abre al inicio y en la mitad de temporada.
+          </div>
+        )}
+        {phase !== "market" && isOrganizer && !regularSeasonComplete && (
+          <button className="btn btn-outline compact-btn" onClick={reopenTransferWindow}>
+            HABILITAR TRANSFERENCIAS
+          </button>
+        )}
+      </section>
+    );
 
   const renderPanel = () => {
     if (activeTab === "Inicio") return renderInicio();
