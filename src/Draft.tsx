@@ -3,7 +3,7 @@ import faunaAvatar from "./assets/fauna.webp";
 import romanoAvatar from "./assets/romano.jpg";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
-const UI_VERSION = "0.911";
+const UI_VERSION = "1.0";
 const TEAM_SIZE_TARGET = 20;
 
 type Tab = "Inicio" | "Club" | "Liga" | "Transferencia";
