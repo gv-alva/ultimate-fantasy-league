@@ -3058,9 +3058,36 @@ app.post("/drafts/:code/finish-playoff", (req, res) => {
     return res.status(403).json({ error: "Solo el organizador puede cerrar la liguilla" });
   }
 
+  awardLeaguePrizeIfNeeded(draft, lobby, code);
   awardPlayoffPrizesIfNeeded(draft, lobby, code);
+  awardQuickTournamentPrizeIfNeeded(draft, code);
   resetLeagueForNewSeason(draft, lobby);
   addNews(draft, code, "Liga UFL: termino la liguilla y se reinicio el sistema de subastas y transferencias");
+  sendDraftUpdate(code);
+  res.json(getDraftPayload(code));
+});
+
+app.post("/drafts/:code/finish-regular-season", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username } = req.body;
+  const draft = ensureDraft(code);
+  const lobby = lobbies.get(code);
+
+  if (!draft || !lobby) {
+    return res.status(404).json({ error: "Draft no encontrado" });
+  }
+
+  if (lobby.creator !== username) {
+    return res.status(403).json({ error: "Solo el organizador puede cerrar la liga regular" });
+  }
+
+  syncStandingsWithTeams(draft, lobby);
+
+  if (!draft.standings?.length) {
+    return res.status(400).json({ error: "Todavia no hay tabla disponible" });
+  }
+
+  appendSeasonWinnerIfNeeded(draft, lobby, code);
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });

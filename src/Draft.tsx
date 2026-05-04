@@ -2217,6 +2217,33 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     }
   };
 
+  const finishRegularSeason = async () => {
+    const confirmed = window.confirm(
+      "Esto cerrara la liga regular, repartira el premio de liga y dejara activa solo la liguilla. ¿Quieres continuar?"
+    );
+    if (!confirmed) return;
+
+    const response = await fetch(`${API_URL}/drafts/${leagueCode}/finish-regular-season`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ username: currentUser }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      alert(errorData?.error || "No se pudo terminar la liga regular");
+      return;
+    }
+
+    const payload = (await response.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
+    }
+    alert("Liga regular cerrada. Premio de liga repartido y liguilla habilitada.");
+  };
+
   const toggleQuickTournamentTeam = (teamKey: string) => {
     setSelectedQuickTeams((current) =>
       current.includes(teamKey) ? current.filter((item) => item !== teamKey) : [...current, teamKey]
@@ -2698,10 +2725,10 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
           </div>
         )}
       </div>
-      {tableView === "tabla" ? (
-        <div className="league-table">
-          {displayStandings.map((team, index) => (
-            <div key={team.key} className="league-row rich">
+        {tableView === "tabla" ? (
+          <div className="league-table">
+            {displayStandings.map((team, index) => (
+              <div key={team.key} className="league-row rich">
               <span className="league-rank">{index + 1}</span>
               <div className="league-main">
                 <strong className={seasonChampionKey === team.key ? "champion-name" : ""}>
@@ -2717,11 +2744,16 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                   <small><b>{team.gf}</b> GF</small>
                   <small><b>{team.ga}</b> GC</small>
                 </div>
-              <b className="league-points">{team.pts} pts</b>
-            </div>
-          ))}
-        </div>
-      ) : tableView === "clubes" ? (
+                <b className="league-points">{team.pts} pts</b>
+              </div>
+            ))}
+            {isOrganizer && !regularSeasonComplete && (
+              <button className="btn btn-login compact-btn" onClick={finishRegularSeason}>
+                TERMINAR LIGA
+              </button>
+            )}
+          </div>
+        ) : tableView === "clubes" ? (
         <div className="clubs-view">
           <div className="club-chip-grid">
             {realLeagueClubs.map((team) => (
