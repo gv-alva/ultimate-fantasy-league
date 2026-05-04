@@ -2474,7 +2474,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
           <span>Nombre del club</span>
           <input
             className="input"
-            placeholder="Real Gus FC"
+            placeholder="Porkis FC"
             value={clubName}
             disabled={hasConfirmed}
             onChange={(event) => setClubName(event.target.value)}
