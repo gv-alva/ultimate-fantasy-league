@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v1.2";
+const SERVER_VERSION = "v1.3";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1500;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -1485,6 +1485,13 @@ const getBlockedNegotiationWindow = (draft, username, playerId) =>
 const getNegotiationBlockedMessage = (playerName) =>
   `${playerName} no quiere negociar contigo este periodo de transferencias`;
 
+const clearPendingSigningByPlayer = (draft, playerId) => {
+  if (!draft?.pendingSignings) return;
+  draft.pendingSignings = draft.pendingSignings.filter(
+    (signing) => String(signing.player?.ID) !== String(playerId)
+  );
+};
+
 const getNegotiationTarget = (code, username, player) => {
   const minSalary = Number(player.salaryMin) || Number(player.salary) || 10;
   const maxSalary = Number(player.salaryMax) || Math.max(minSalary + 10, Number(player.salary) || 20);
@@ -1627,8 +1634,9 @@ const getDraftPayload = (code) => {
       Object.entries(draft.teams).map(([owner, team]) => [owner, getTeamPayload(team)])
     ),
     offers: draft.offers,
-    pendingSignings: (draft.pendingSignings || []).map(getPendingSigningPayload),
-    news: getNewsPayload(draft, code),
+      pendingSignings: (draft.pendingSignings || []).map(getPendingSigningPayload),
+      blockedNegotiations: draft.blockedNegotiations || {},
+      news: getNewsPayload(draft, code),
     leagueMatchCount: draft.leagueMatchCount || 0,
     regularSeasonComplete: Boolean(draft.regularSeasonComplete),
     seasonChampionKey: draft.seasonChampionKey || "",
@@ -2176,22 +2184,28 @@ app.post("/drafts/:code/next-stage", (req, res) => {
         acc[String(bid.playerId)] = bid;
       }
       return acc;
-    }, {})
-  );
+      }, {})
+    );
+
+  draft.pendingSignings = (draft.pendingSignings || []).filter((signing) => signing.type !== "auction");
 
   winners.forEach((winner) => {
-    const player = getDraftPlayerById(draft, winner.playerId);
-    const team = draft.teams[winner.owner];
-    addNews(draft, code, `Fabrizio Romano: ${winner.owner} gano a ${player?.Name || winner.playerId} por ${winner.amount}M`);
-    if (
-      player &&
-      team &&
-      !team.squad.some((item) => item.ID === player.ID) &&
-      team.squad.length < TEAM_SIZE_TARGET
-    ) {
-      draft.pendingSignings.unshift({
-        id: `auction-${winner.playerId}-${Date.now()}-${winner.owner}`,
-        owner: winner.owner,
+      const player = getDraftPlayerById(draft, winner.playerId);
+      const team = draft.teams[winner.owner];
+      const playerAlreadyPending = (draft.pendingSignings || []).some(
+        (signing) => String(signing.player?.ID) === String(winner.playerId)
+      );
+      addNews(draft, code, `Fabrizio Romano: ${winner.owner} gano a ${player?.Name || winner.playerId} por ${winner.amount}M`);
+      if (
+        player &&
+        team &&
+        !team.squad.some((item) => item.ID === player.ID) &&
+        team.squad.length < TEAM_SIZE_TARGET &&
+        !playerAlreadyPending
+      ) {
+        draft.pendingSignings.unshift({
+          id: `auction-${winner.playerId}-${Date.now()}-${winner.owner}`,
+          owner: winner.owner,
         type: "auction",
         player,
         amount: Number(winner.amount) || 0,
@@ -2273,27 +2287,26 @@ app.post("/drafts/:code/negotiate", (req, res) => {
 
   if (offeredSalary < negotiation.targetSalary) {
     negotiation.attempts += 1;
-    if (negotiation.attempts >= MAX_NEGOTIATION_ATTEMPTS) {
-      delete draft.negotiations[negotiationKey];
-      draft.blockedNegotiations[negotiationKey] = draft.transferWindowId + 1;
-      if (pendingSigning?.type === "offer" || pendingSigning?.type === "clause") {
-        const buyer = draft.teams[pendingSigning.owner];
-        const seller = draft.teams[pendingSigning.fromOwner];
-        const heldAmount = Number(pendingSigning.heldAmount || transferAmount) || 0;
+      if (negotiation.attempts >= MAX_NEGOTIATION_ATTEMPTS) {
+        delete draft.negotiations[negotiationKey];
+        draft.blockedNegotiations[negotiationKey] = draft.transferWindowId + 1;
+        clearPendingSigningByPlayer(draft, playerId);
+        if (pendingSigning?.type === "offer" || pendingSigning?.type === "clause") {
+          const buyer = draft.teams[pendingSigning.owner];
+          const seller = draft.teams[pendingSigning.fromOwner];
+          const heldAmount = Number(pendingSigning.heldAmount || transferAmount) || 0;
         const refund = Math.round((heldAmount * 0.7) * 10) / 10;
         const sellerPenalty = Math.round((heldAmount - refund) * 10) / 10;
 
         if (buyer) {
           buyer.budget += refund;
         }
-        if (seller) {
-          seller.budget += sellerPenalty;
-        }
-
-        draft.pendingSignings = draft.pendingSignings.filter((signing) => signing.id !== pendingSigning.id);
-        addNews(
-          draft,
-          code,
+          if (seller) {
+            seller.budget += sellerPenalty;
+          }
+          addNews(
+            draft,
+            code,
           `Fabrizio Romano: ${player.Name} rechazo a ${pendingSigning.buyerClub || pendingSigning.owner}. La operacion se cayo, regresaron ${refund}M al comprador y ${sellerPenalty}M quedaron para ${pendingSigning.fromClub || pendingSigning.fromOwner}`
         );
         sendDraftUpdate(code);
@@ -2315,15 +2328,15 @@ app.post("/drafts/:code/negotiate", (req, res) => {
   delete draft.negotiations[negotiationKey];
 
   if (pendingSigning) {
-    if (pendingSigning.type === "offer" || pendingSigning.type === "clause") {
-      const seller = draft.teams[pendingSigning.fromOwner];
-      const buyer = draft.teams[pendingSigning.owner];
-      const sellerOwns = seller?.squad.some((item) => item.ID === player.ID);
+      if (pendingSigning.type === "offer" || pendingSigning.type === "clause") {
+        const seller = draft.teams[pendingSigning.fromOwner];
+        const buyer = draft.teams[pendingSigning.owner];
+        const sellerOwns = seller?.squad.some((item) => item.ID === player.ID);
 
-      if (!seller || !buyer || !sellerOwns) {
-        draft.pendingSignings = draft.pendingSignings.filter((signing) => signing.id !== pendingSigning.id);
-        return res.status(400).json({ error: "La transferencia ya no esta disponible" });
-      }
+        if (!seller || !buyer || !sellerOwns) {
+          clearPendingSigningByPlayer(draft, playerId);
+          return res.status(400).json({ error: "La transferencia ya no esta disponible" });
+        }
 
       const salaryAfter = getTeamPayroll(buyer) + (Number(offeredSalary) || 0);
 
@@ -2335,13 +2348,13 @@ app.post("/drafts/:code/negotiate", (req, res) => {
         return res.status(400).json({ error: "No puedes cerrar este contrato por presupuesto, masa salarial o plantilla" });
       }
 
-      seller.squad = seller.squad.filter((item) => item.ID !== player.ID);
-      seller.budget += Number(pendingSigning.heldAmount || transferAmount) || 0;
-      buyer.squad.push(clonePlayerForTeam(player, offeredSalary));
-      draft.pendingSignings = draft.pendingSignings.filter((signing) => signing.id !== pendingSigning.id);
-      addNews(
-        draft,
-        code,
+        seller.squad = seller.squad.filter((item) => item.ID !== player.ID);
+        seller.budget += Number(pendingSigning.heldAmount || transferAmount) || 0;
+        buyer.squad.push(clonePlayerForTeam(player, offeredSalary));
+        clearPendingSigningByPlayer(draft, playerId);
+        addNews(
+          draft,
+          code,
         pendingSigning.type === "clause"
           ? `Fabrizio Romano: ${player.Name} deja ${seller.name} por clausula y firma con ${buyer.name} con sueldo de ${offeredSalary}k por temporada`
           : `Fabrizio Romano: ${player.Name} cambia de ${seller.name} a ${buyer.name} con sueldo de ${offeredSalary}k por temporada`
@@ -2356,14 +2369,14 @@ app.post("/drafts/:code/negotiate", (req, res) => {
 
     if (!canAddPlayerToTeam(team, player, offeredSalary, transferAmount)) {
       return res.status(400).json({ error: "No puedes cerrar este contrato por presupuesto, masa salarial o plantilla" });
-    }
+      }
 
-    team.budget -= transferAmount;
-    team.squad.push(clonePlayerForTeam(player, offeredSalary));
-    draft.pendingSignings = draft.pendingSignings.filter((signing) => signing.id !== pendingSigning.id);
-    addNews(draft, code, `Fabrizio Romano: ${team.name} cerro a ${player.Name} tras ganar la subasta, sueldo ${offeredSalary}k por temporada`);
-    addFaunaComment(draft, code, "transfer", { player: player.Name, winner: team.name });
-    sendDraftUpdate(code);
+      team.budget -= transferAmount;
+      team.squad.push(clonePlayerForTeam(player, offeredSalary));
+      clearPendingSigningByPlayer(draft, playerId);
+      addNews(draft, code, `Fabrizio Romano: ${team.name} cerro a ${player.Name} tras ganar la subasta, sueldo ${offeredSalary}k por temporada`);
+      addFaunaComment(draft, code, "transfer", { player: player.Name, winner: team.name });
+      sendDraftUpdate(code);
     return res.json({ mode: "auction", ...getDraftPayload(code) });
   }
 

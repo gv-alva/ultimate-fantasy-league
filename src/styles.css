@@ -1495,6 +1495,25 @@ body {
   z-index: 2;
 }
 
+.offer-status-text {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  width: 100%;
+  padding: 0 14px;
+  border-radius: 14px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.danger-text {
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.35);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
 .card-grid .offer-actions {
   display: grid;
   grid-template-columns: 1fr;

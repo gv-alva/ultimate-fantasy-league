@@ -3,7 +3,7 @@ import faunaAvatar from "./assets/fauna.webp";
 import romanoAvatar from "./assets/romano.jpg";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
-const UI_VERSION = "1.2";
+const UI_VERSION = "1.3";
 const TEAM_SIZE_TARGET = 20;
 
 type Tab = "Inicio" | "Club" | "Liga" | "Transferencia";
@@ -159,6 +159,7 @@ type DraftEvent = {
   teams: Record<string, TeamState>;
   offers: Offer[];
   pendingSignings: PendingSigning[];
+  blockedNegotiations?: Record<string, number>;
   news: NewsEntry[];
   leagueMatchCount: number;
   regularSeasonComplete?: boolean;
@@ -862,6 +863,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [offerView, setOfferView] = useState<"recibidas" | "enviadas">("recibidas");
   const [offers, setOffers] = useState<Offer[]>([]);
   const [pendingSignings, setPendingSignings] = useState<PendingSigning[]>([]);
+  const [blockedNegotiations, setBlockedNegotiations] = useState<Record<string, number>>({});
   const [leagueMatchCount, setLeagueMatchCount] = useState(0);
   const [regularSeasonComplete, setRegularSeasonComplete] = useState(false);
   const [standings, setStandings] = useState<Standing[]>([]);
@@ -976,6 +978,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     });
     setOffers(draft.offers || []);
     setPendingSignings(draft.pendingSignings || []);
+    setBlockedNegotiations(draft.blockedNegotiations || {});
     setNews((draft.news || []).filter(shouldDisplayNewsItem));
     setLeagueMatchCount(draft.leagueMatchCount || 0);
     setRegularSeasonComplete(Boolean(draft.regularSeasonComplete));
@@ -1031,6 +1034,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setTeams({});
     setOffers([]);
     setPendingSignings([]);
+    setBlockedNegotiations({});
     setLeagueMatchCount(0);
     setRegularSeasonComplete(false);
     setActiveTab("Inicio");
@@ -1372,6 +1376,8 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     (offer) => offer.to === currentUser && offer.status === "pending"
   ).length;
   const myPendingSignings = pendingSignings.filter((signing) => signing.owner === currentUser);
+  const isSigningNegotiationBlocked = (signing: PendingSigning) =>
+    Number(blockedNegotiations[`${currentUser}:${signing.player.ID}`] || 0) > 0;
   const myInbox = inbox[currentUser] || [];
   const filteredNews = news.filter(shouldDisplayNewsItem);
   const unreadInboxCount = myInbox.filter((item) => !readInboxIds.includes(item.id)).length;
@@ -2996,37 +3002,41 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
 
       {myPendingSignings.length > 0 && (
         <div className="offers-panel">
-          {myPendingSignings.map((signing) => (
-            <div key={signing.id} className="offer-card">
-              <strong>{signing.player.Name}</strong>
-              <span>
+            {myPendingSignings.map((signing) => (
+              <div key={signing.id} className="offer-card">
+                <strong>{signing.player.Name}</strong>
+                <span>
                 {signing.type === "auction"
                   ? `Ganaste la subasta por ${money(signing.amount)}`
                   : signing.type === "clause"
                     ? `Activaste la clausula de ${signing.fromClub || signing.fromOwner} por ${money(signing.amount)}`
                     : `${signing.fromClub || signing.fromOwner} acepto tu oferta por ${money(signing.amount)}`}
-              </span>
-              <small>Sueldo aprox por temporada: {salaryRange(signing.player)}</small>
-              <div className="offer-actions">
-                <button
-                  className="small-action"
-                  onClick={() =>
-                    negotiateSalaryWithPlayer(
-                      signing.player,
-                      signing.amount,
-                      signing.type === "offer"
-                        ? "offer"
-                        : signing.type === "clause"
-                          ? "clause"
-                          : "auction"
-                    )
-                  }
-                >
-                  NEGOCIAR SUELDO
-                </button>
+                </span>
+                <small>Sueldo aprox por temporada: {salaryRange(signing.player)}</small>
+                <div className="offer-actions">
+                  {isSigningNegotiationBlocked(signing) ? (
+                    <span className="offer-status-text danger-text">NEGOCIACION BLOQUEADA</span>
+                  ) : (
+                    <button
+                      className="small-action"
+                      onClick={() =>
+                        negotiateSalaryWithPlayer(
+                          signing.player,
+                          signing.amount,
+                          signing.type === "offer"
+                            ? "offer"
+                            : signing.type === "clause"
+                              ? "clause"
+                              : "auction"
+                        )
+                      }
+                    >
+                      NEGOCIAR SUELDO
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
         </div>
       )}
 
