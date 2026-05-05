@@ -2146,6 +2146,40 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setShowStandingEditForm(false);
   };
 
+  const addTransferBudgetForAll = async () => {
+    const amountText = window.prompt("Cantidad en millones para agregar a cada club real:", "10");
+    if (amountText === null) return;
+
+    const amount = Number(amountText);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      alert("Escribe una cantidad valida");
+      return;
+    }
+
+    const response = await fetch(`${API_URL}/drafts/${leagueCode}/add-budget`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+        amount,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      alert(errorData?.error || "No se pudo agregar presupuesto");
+      return;
+    }
+
+    const payload = (await response.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
+    }
+    alert(`Se agregaron ${amount}M a cada club real.`);
+  };
+
   const canManagePlayoffMatch = (match?: PlayoffMatch | null) =>
     Boolean(
       match &&
@@ -2745,13 +2779,14 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
         </div>
         {isOrganizer && settings.fillCpuTeams && settings.leagueType !== "Fantasia" && (
           <div className="league-admin-block">
-            <div className="league-admin-title">Administracion</div>
-            <div className="league-admin-grid">
-              {renderLeagueActionButton("EDITAR TABLA", "edit", openStandingEditor, { admin: true })}
-              {renderLeagueActionButton("RENOMBRAR CLUBES", "rename", () => setShowCpuRenameForm(true), { admin: true })}
+              <div className="league-admin-title">Administracion</div>
+              <div className="league-admin-grid">
+                {renderLeagueActionButton("EDITAR TABLA", "edit", openStandingEditor, { admin: true })}
+                {renderLeagueActionButton("RENOMBRAR CLUBES", "rename", () => setShowCpuRenameForm(true), { admin: true })}
+                {renderLeagueActionButton("AGREGAR PRESUPUESTO", "prize", addTransferBudgetForAll, { admin: true })}
+              </div>
             </div>
-          </div>
-        )}
+          )}
       </div>
         {tableView === "tabla" ? (
           <div className="league-table">

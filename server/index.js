@@ -636,6 +636,25 @@ const addFaunaComment = (draft, code, type, context = {}) => {
         `Si eso era una oferta seria, mejor que entreguen la calculadora.`,
       ],
     },
+    budget: {
+      opener: [
+        `Fabritzio Fauna: ${winner} le abrio la llave del dinero a la liga.`,
+        `Fabritzio Fauna: Cayo presupuesto extra y varios clubes ya se sienten magnates de juguete.`,
+        `Fabritzio Fauna: El organizador tiro billetes al mercado y ahora todos se creen tiburones.`,
+      ],
+      middle: [
+        `Con ${player} extra por club, mas de uno ya va a salir a fichar como si supiera negociar.`,
+        `Ahora veremos quien compra talento y quien vuelve a pagar de mas por puro humo.`,
+        `Les dieron caja nueva; falta ver si la usan para reforzarse o para hacer el ridiculo con corbata.`,
+        `Dinero fresco para todos, aunque varios siguen teniendo criterio de carrito descompuesto.`,
+      ],
+      closer: [
+        `Que no se emocionen tanto, que dinero no arregla un cerebro tactico fundido.`,
+        `A algunos les dieron presupuesto; lastima que no venden neuronas en el mercado.`,
+        `Ahora ya no tendran excusa economica, solo deportiva.`,
+        `Si vuelven a fichar mal con esto, mejor que cierren la oficina.`,
+      ],
+    },
   };
 
   const family = faunaFragments[type] || faunaFragments.transfer;
@@ -3080,6 +3099,45 @@ app.post("/drafts/:code/edit-standing", (req, res) => {
     appendSeasonWinnerIfNeeded(draft, lobby, code);
   }
   addNews(draft, code, `Liga UFL: el organizador edito la tabla de ${standing.name}`);
+  sendDraftUpdate(code);
+  res.json(getDraftPayload(code));
+});
+
+app.post("/drafts/:code/add-budget", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username, amount } = req.body;
+  const draft = ensureDraft(code);
+  const lobby = lobbies.get(code);
+
+  if (!draft || !lobby) {
+    return res.status(404).json({ error: "Draft no encontrado" });
+  }
+
+  if (lobby.creator !== username) {
+    return res.status(403).json({ error: "Solo el organizador puede agregar presupuesto" });
+  }
+
+  const parsedAmount = Math.round((Number(amount) || 0) * 10) / 10;
+  if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+    return res.status(400).json({ error: "Escribe una cantidad valida en millones" });
+  }
+
+  lobby.players.forEach((owner) => {
+    const team = draft.teams?.[owner];
+    if (team) {
+      team.budget = Math.round((Number(team.budget || 0) + parsedAmount) * 10) / 10;
+    }
+  });
+
+  addNews(
+    draft,
+    code,
+    `Liga UFL: el organizador agrego ${formatMoney(parsedAmount)} de presupuesto de transferencias a cada club real`
+  );
+  addFaunaComment(draft, code, "budget", {
+    winner: "la liga",
+    player: `${formatMoney(parsedAmount)}`,
+  });
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });
