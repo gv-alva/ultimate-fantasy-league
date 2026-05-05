@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v1.3";
+const SERVER_VERSION = "v1.4";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1500;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -3099,6 +3099,89 @@ app.post("/drafts/:code/edit-standing", (req, res) => {
     appendSeasonWinnerIfNeeded(draft, lobby, code);
   }
   addNews(draft, code, `Liga UFL: el organizador edito la tabla de ${standing.name}`);
+  sendDraftUpdate(code);
+  res.json(getDraftPayload(code));
+});
+
+app.post("/drafts/:code/admin-player-update", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username, ownerKey, playerId, updates = {} } = req.body;
+  const draft = ensureDraft(code);
+  const lobby = lobbies.get(code);
+
+  if (!draft || !lobby) {
+    return res.status(404).json({ error: "Draft no encontrado" });
+  }
+
+  if (lobby.creator !== username) {
+    return res.status(403).json({ error: "Solo el organizador puede editar clubes" });
+  }
+
+  const team = draft.teams?.[ownerKey];
+  const playerIndex = team?.squad?.findIndex((item) => String(item.ID) === String(playerId)) ?? -1;
+  if (!team || playerIndex === -1) {
+    return res.status(404).json({ error: "Jugador no encontrado en ese club" });
+  }
+
+  const currentPlayer = team.squad[playerIndex];
+  const numericKeys = [
+    "OVR",
+    "PAC",
+    "SHO",
+    "PAS",
+    "DRI",
+    "DEF",
+    "PHY",
+    "Age",
+    "marketValue",
+    "salary",
+    "salaryMin",
+    "salaryMax",
+    "releaseValue",
+  ];
+  const textKeys = ["Position", "Nation", "League", "Preferred foot", "Weak foot", "Skill moves"];
+
+  const nextPlayer = { ...currentPlayer };
+  numericKeys.forEach((key) => {
+    if (updates[key] !== undefined && updates[key] !== null && updates[key] !== "") {
+      nextPlayer[key] = Number(updates[key]) || 0;
+    }
+  });
+  textKeys.forEach((key) => {
+    if (updates[key] !== undefined && updates[key] !== null) {
+      nextPlayer[key] = String(updates[key]).trim();
+    }
+  });
+
+  team.squad[playerIndex] = nextPlayer;
+  addNews(draft, code, `Liga UFL: el organizador corrigio manualmente a ${currentPlayer.Name} en ${team.name}`);
+  sendDraftUpdate(code);
+  res.json(getDraftPayload(code));
+});
+
+app.post("/drafts/:code/admin-player-remove", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username, ownerKey, playerId } = req.body;
+  const draft = ensureDraft(code);
+  const lobby = lobbies.get(code);
+
+  if (!draft || !lobby) {
+    return res.status(404).json({ error: "Draft no encontrado" });
+  }
+
+  if (lobby.creator !== username) {
+    return res.status(403).json({ error: "Solo el organizador puede editar clubes" });
+  }
+
+  const team = draft.teams?.[ownerKey];
+  const player = team?.squad?.find((item) => String(item.ID) === String(playerId));
+  if (!team || !player) {
+    return res.status(404).json({ error: "Jugador no encontrado en ese club" });
+  }
+
+  team.squad = team.squad.filter((item) => String(item.ID) !== String(playerId));
+  team.protectedPlayerIds = getProtectedPlayerIds(team).filter((id) => String(id) !== String(playerId));
+  addNews(draft, code, `Liga UFL: el organizador elimino manualmente a ${player.Name} de ${team.name}`);
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });

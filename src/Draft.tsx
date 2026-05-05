@@ -3,7 +3,7 @@ import faunaAvatar from "./assets/fauna.webp";
 import romanoAvatar from "./assets/romano.jpg";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
-const UI_VERSION = "1.3";
+const UI_VERSION = "1.4";
 const TEAM_SIZE_TARGET = 20;
 
 type Tab = "Inicio" | "Club" | "Liga" | "Transferencia";
@@ -873,6 +873,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [showCpuForm, setShowCpuForm] = useState(false);
   const [showCpuRenameForm, setShowCpuRenameForm] = useState(false);
   const [showStandingEditForm, setShowStandingEditForm] = useState(false);
+  const [showClubAdminForm, setShowClubAdminForm] = useState(false);
   const previousServerPhaseRef = useRef<ServerPhase | null>(null);
   const hasHydratedFromEventsRef = useRef(false);
   const activeTabRef = useRef<Tab>("Inicio");
@@ -909,6 +910,26 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [editGf, setEditGf] = useState("0");
   const [editGa, setEditGa] = useState("0");
   const [editPts, setEditPts] = useState("0");
+  const [adminClubOwner, setAdminClubOwner] = useState("");
+  const [adminPlayerId, setAdminPlayerId] = useState("");
+  const [adminPlayerForm, setAdminPlayerForm] = useState<Record<string, string>>({
+    OVR: "0",
+    PAC: "0",
+    SHO: "0",
+    PAS: "0",
+    DRI: "0",
+    DEF: "0",
+    PHY: "0",
+    Age: "0",
+    marketValue: "0",
+    salary: "0",
+    salaryMin: "0",
+    salaryMax: "0",
+    releaseValue: "0",
+    Position: "",
+    Nation: "",
+    League: "",
+  });
   const [seasonChampionKey, setSeasonChampionKey] = useState("");
   const [championOverlay, setChampionOverlay] = useState<ChampionOverlayState | null>(null);
   const [clubAnnouncement, setClubAnnouncement] = useState<ClubAnnouncement | null>(null);
@@ -1045,6 +1066,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setShowCpuForm(false);
     setShowCpuRenameForm(false);
     setShowStandingEditForm(false);
+    setShowClubAdminForm(false);
     setPlayoff(null);
     setQuickTournament(null);
     setShowQuickTournamentForm(false);
@@ -1054,6 +1076,26 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setSeasonChampionKey("");
     setChampionOverlay(null);
     setClubAnnouncement(null);
+    setAdminClubOwner("");
+    setAdminPlayerId("");
+    setAdminPlayerForm({
+      OVR: "0",
+      PAC: "0",
+      SHO: "0",
+      PAS: "0",
+      DRI: "0",
+      DEF: "0",
+      PHY: "0",
+      Age: "0",
+      marketValue: "0",
+      salary: "0",
+      salaryMin: "0",
+      salaryMax: "0",
+      releaseValue: "0",
+      Position: "",
+      Nation: "",
+      League: "",
+    });
     setReadInboxIds([]);
     setHasUnreadInicio(false);
     seenChampionCelebrationRef.current = "";
@@ -1219,10 +1261,22 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   }, [search, phase, leagueMatchCount, settings.format, settings.leagueType, schedule, standings, cpuTeams.length, regularSeasonComplete]);
 
   useEffect(() => {
-    if (pool.length === 0 || auctionOptions.length > 0) return;
+    if (pool.length === 0 || confirmedOwners.length < players.length) return;
 
-    setAuctionOptions(buildAuctionStages(pool, leagueCode));
-  }, [pool, auctionOptions.length, leagueCode]);
+    const ownedIds = new Set<string>();
+    Object.values(teams).forEach((team) => {
+      (team.squad || []).forEach((player) => ownedIds.add(String(player.ID)));
+    });
+
+    const availableAuctionPool = pool.filter((player) => !ownedIds.has(String(player.ID)));
+    const hasOwnedAuctionPlayers = auctionOptions.some((stage) =>
+      stage.some((player) => ownedIds.has(String(player.ID)))
+    );
+
+    if (auctionOptions.length === 0 || hasOwnedAuctionPlayers) {
+      setAuctionOptions(buildAuctionStages(availableAuctionPool, leagueCode));
+    }
+  }, [pool, teams, auctionOptions, leagueCode, confirmedOwners.length, players.length]);
 
   useEffect(() => {
     if (settings.leagueType !== "Fantasia" && tableView === "partidos") {
@@ -2146,6 +2200,143 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setShowStandingEditForm(false);
   };
 
+  const adminEditableClubs = players
+    .map((owner) => ({
+      owner,
+      name: teams[owner]?.name || owner,
+      squad: teams[owner]?.squad || [],
+    }))
+    .filter((team) => team.squad.length > 0);
+
+  const syncAdminPlayerForm = (ownerKey: string, playerId?: string) => {
+    const team = teams[ownerKey];
+    const squad = team?.squad || [];
+    const nextPlayer =
+      squad.find((player) => String(player.ID) === String(playerId || adminPlayerId)) || squad[0];
+
+    setAdminClubOwner(ownerKey);
+    setAdminPlayerId(nextPlayer ? String(nextPlayer.ID) : "");
+    setAdminPlayerForm({
+      OVR: String(nextPlayer?.OVR || 0),
+      PAC: String(nextPlayer?.PAC || 0),
+      SHO: String(nextPlayer?.SHO || 0),
+      PAS: String(nextPlayer?.PAS || 0),
+      DRI: String(nextPlayer?.DRI || 0),
+      DEF: String(nextPlayer?.DEF || 0),
+      PHY: String(nextPlayer?.PHY || 0),
+      Age: String(nextPlayer?.Age || 0),
+      marketValue: String(nextPlayer?.marketValue || 0),
+      salary: String(nextPlayer?.salary || 0),
+      salaryMin: String(nextPlayer?.salaryMin || 0),
+      salaryMax: String(nextPlayer?.salaryMax || 0),
+      releaseValue: String(nextPlayer?.releaseValue || 0),
+      Position: String(nextPlayer?.Position || ""),
+      Nation: String(nextPlayer?.Nation || ""),
+      League: String(nextPlayer?.League || ""),
+    });
+  };
+
+  const openClubAdminEditor = () => {
+    const firstClub = adminEditableClubs[0];
+    if (!firstClub) return;
+    syncAdminPlayerForm(firstClub.owner);
+    setShowClubAdminForm(true);
+  };
+
+  const updateAdminPlayerField = (field: string, value: string) => {
+    setAdminPlayerForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  };
+
+  const saveAdminPlayerChanges = async () => {
+    if (!adminClubOwner || !adminPlayerId) {
+      alert("Selecciona un club y un jugador");
+      return;
+    }
+
+    const response = await fetch(`${API_URL}/drafts/${leagueCode}/admin-player-update`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+        ownerKey: adminClubOwner,
+        playerId: adminPlayerId,
+        updates: adminPlayerForm,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      alert(errorData?.error || "No se pudo editar el jugador");
+      return;
+    }
+
+    const payload = (await response.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
+    }
+    alert("Jugador actualizado manualmente.");
+  };
+
+  const removeAdminPlayer = async () => {
+    if (!adminClubOwner || !adminPlayerId) {
+      alert("Selecciona un jugador");
+      return;
+    }
+
+    const team = teams[adminClubOwner];
+    const player = team?.squad.find((item) => String(item.ID) === String(adminPlayerId));
+    if (!player) {
+      alert("Jugador no encontrado");
+      return;
+    }
+
+    if (!window.confirm(`Eliminar a ${player.Name} de ${team?.name || adminClubOwner}?`)) {
+      return;
+    }
+
+    const response = await fetch(`${API_URL}/drafts/${leagueCode}/admin-player-remove`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+        ownerKey: adminClubOwner,
+        playerId: adminPlayerId,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      alert(errorData?.error || "No se pudo eliminar el jugador");
+      return;
+    }
+
+    const payload = (await response.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
+    }
+
+    const nextTeam = (payload?.teams?.[adminClubOwner] as TeamState | undefined) || teams[adminClubOwner];
+    const nextSquad = nextTeam?.squad || [];
+    if (nextSquad.length > 0) {
+      syncAdminPlayerForm(adminClubOwner, String(nextSquad[0].ID));
+    } else {
+      const fallbackClub = adminEditableClubs.find((club) => club.owner !== adminClubOwner && club.squad.length > 0);
+      if (fallbackClub) {
+        syncAdminPlayerForm(fallbackClub.owner, String(fallbackClub.squad[0].ID));
+      } else {
+        setShowClubAdminForm(false);
+      }
+    }
+    alert("Jugador eliminado del club.");
+  };
+
   const addTransferBudgetForAll = async () => {
     const amountText = window.prompt("Cantidad en millones para agregar a cada club real:", "10");
     if (amountText === null) return;
@@ -2777,12 +2968,14 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
           {settings.leagueType === "Fantasia" &&
             renderLeagueActionButton("PARTIDOS", "league", () => setTableView("partidos"), { active: tableView === "partidos" })}
         </div>
-        {isOrganizer && settings.fillCpuTeams && settings.leagueType !== "Fantasia" && (
+        {isOrganizer && settings.leagueType !== "Fantasia" && (
           <div className="league-admin-block">
               <div className="league-admin-title">Administracion</div>
               <div className="league-admin-grid">
                 {renderLeagueActionButton("EDITAR TABLA", "edit", openStandingEditor, { admin: true })}
-                {renderLeagueActionButton("RENOMBRAR CLUBES", "rename", () => setShowCpuRenameForm(true), { admin: true })}
+                {renderLeagueActionButton("EDITAR CLUBES", "clubs", openClubAdminEditor, { admin: true })}
+                {settings.fillCpuTeams &&
+                  renderLeagueActionButton("RENOMBRAR CLUBES", "rename", () => setShowCpuRenameForm(true), { admin: true })}
                 {renderLeagueActionButton("AGREGAR PRESUPUESTO", "prize", addTransferBudgetForAll, { admin: true })}
               </div>
             </div>
@@ -3508,6 +3701,113 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
               </label>
             </div>
             <button className="btn btn-login" onClick={submitStandingEdit}>GUARDAR</button>
+          </div>
+        </div>
+      )}
+
+      {showClubAdminForm && (
+        <div className="player-modal" onClick={() => setShowClubAdminForm(false)}>
+          <div className="player-modal-card" onClick={(event) => event.stopPropagation()}>
+            <button className="modal-close" onClick={() => setShowClubAdminForm(false)}>Cerrar</button>
+            <h2>Editar clubes</h2>
+            <div className="form-grid">
+              <label className="field">
+                <span>Club</span>
+                <select
+                  className="input"
+                  value={adminClubOwner}
+                  onChange={(e) => syncAdminPlayerForm(e.target.value)}
+                >
+                  {adminEditableClubs.map((team) => (
+                    <option key={`admin-club-${team.owner}`} value={team.owner}>
+                      {team.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Jugador</span>
+                <select
+                  className="input"
+                  value={adminPlayerId}
+                  onChange={(e) => syncAdminPlayerForm(adminClubOwner, e.target.value)}
+                >
+                  {(teams[adminClubOwner]?.squad || []).map((player) => (
+                    <option key={`admin-player-${player.ID}`} value={player.ID}>
+                      {player.Name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Posicion</span>
+                <input className="input" value={adminPlayerForm.Position} onChange={(e) => updateAdminPlayerField("Position", e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Edad</span>
+                <input className="input" value={adminPlayerForm.Age} onChange={(e) => updateAdminPlayerField("Age", e.target.value)} inputMode="numeric" />
+              </label>
+              <label className="field">
+                <span>Nacion</span>
+                <input className="input" value={adminPlayerForm.Nation} onChange={(e) => updateAdminPlayerField("Nation", e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Liga</span>
+                <input className="input" value={adminPlayerForm.League} onChange={(e) => updateAdminPlayerField("League", e.target.value)} />
+              </label>
+              <label className="field">
+                <span>OVR</span>
+                <input className="input" value={adminPlayerForm.OVR} onChange={(e) => updateAdminPlayerField("OVR", e.target.value)} inputMode="numeric" />
+              </label>
+              <label className="field">
+                <span>PAC</span>
+                <input className="input" value={adminPlayerForm.PAC} onChange={(e) => updateAdminPlayerField("PAC", e.target.value)} inputMode="numeric" />
+              </label>
+              <label className="field">
+                <span>SHO</span>
+                <input className="input" value={adminPlayerForm.SHO} onChange={(e) => updateAdminPlayerField("SHO", e.target.value)} inputMode="numeric" />
+              </label>
+              <label className="field">
+                <span>PAS</span>
+                <input className="input" value={adminPlayerForm.PAS} onChange={(e) => updateAdminPlayerField("PAS", e.target.value)} inputMode="numeric" />
+              </label>
+              <label className="field">
+                <span>DRI</span>
+                <input className="input" value={adminPlayerForm.DRI} onChange={(e) => updateAdminPlayerField("DRI", e.target.value)} inputMode="numeric" />
+              </label>
+              <label className="field">
+                <span>DEF</span>
+                <input className="input" value={adminPlayerForm.DEF} onChange={(e) => updateAdminPlayerField("DEF", e.target.value)} inputMode="numeric" />
+              </label>
+              <label className="field">
+                <span>PHY</span>
+                <input className="input" value={adminPlayerForm.PHY} onChange={(e) => updateAdminPlayerField("PHY", e.target.value)} inputMode="numeric" />
+              </label>
+              <label className="field">
+                <span>Valor de mercado</span>
+                <input className="input" value={adminPlayerForm.marketValue} onChange={(e) => updateAdminPlayerField("marketValue", e.target.value)} inputMode="decimal" />
+              </label>
+              <label className="field">
+                <span>Sueldo</span>
+                <input className="input" value={adminPlayerForm.salary} onChange={(e) => updateAdminPlayerField("salary", e.target.value)} inputMode="numeric" />
+              </label>
+              <label className="field">
+                <span>Sueldo minimo</span>
+                <input className="input" value={adminPlayerForm.salaryMin} onChange={(e) => updateAdminPlayerField("salaryMin", e.target.value)} inputMode="numeric" />
+              </label>
+              <label className="field">
+                <span>Sueldo maximo</span>
+                <input className="input" value={adminPlayerForm.salaryMax} onChange={(e) => updateAdminPlayerField("salaryMax", e.target.value)} inputMode="numeric" />
+              </label>
+              <label className="field">
+                <span>Clausula</span>
+                <input className="input" value={adminPlayerForm.releaseValue} onChange={(e) => updateAdminPlayerField("releaseValue", e.target.value)} inputMode="decimal" />
+              </label>
+            </div>
+            <div className="offer-actions">
+              <button className="btn btn-login" onClick={saveAdminPlayerChanges}>GUARDAR CAMBIOS</button>
+              <button className="btn btn-outline danger" onClick={removeAdminPlayer}>ELIMINAR JUGADOR</button>
+            </div>
           </div>
         </div>
       )}
