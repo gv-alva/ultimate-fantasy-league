@@ -3250,15 +3250,6 @@ app.post("/drafts/:code/add-budget-club", (req, res) => {
   }
 
   team.budget = Math.round((Number(team.budget || 0) + parsedAmount) * 10) / 10;
-  addNews(
-    draft,
-    code,
-    `Liga UFL: el organizador compenso con ${formatMoney(parsedAmount)} a ${team.name}`
-  );
-  addFaunaComment(draft, code, "budget", {
-    winner: team.name,
-    player: `${formatMoney(parsedAmount)}`,
-  });
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));
 });
