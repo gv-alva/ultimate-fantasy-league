@@ -2371,6 +2371,60 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     alert(`Se agregaron ${amount}M a cada club real.`);
   };
 
+  const addTransferBudgetToClub = async () => {
+    const clubs = adminEditableClubs;
+    if (clubs.length === 0) {
+      alert("No hay clubes reales disponibles");
+      return;
+    }
+
+    const clubList = clubs.map((club) => club.name).join(", ");
+    const clubNameText = window.prompt(`Escribe el nombre exacto del club a compensar:\n${clubList}`, clubs[0].name);
+    if (clubNameText === null) return;
+
+    const selectedClub = clubs.find(
+      (club) => club.name.trim().toLowerCase() === clubNameText.trim().toLowerCase()
+    );
+
+    if (!selectedClub) {
+      alert("No se encontro ese club");
+      return;
+    }
+
+    const amountText = window.prompt(`Cantidad en millones para ${selectedClub.name}:`, "10");
+    if (amountText === null) return;
+
+    const amount = Number(amountText);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      alert("Escribe una cantidad valida");
+      return;
+    }
+
+    const response = await fetch(`${API_URL}/drafts/${leagueCode}/add-budget-club`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+        ownerKey: selectedClub.owner,
+        amount,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      alert(errorData?.error || "No se pudo compensar presupuesto al club");
+      return;
+    }
+
+    const payload = (await response.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
+    }
+    alert(`Se agregaron ${amount}M a ${selectedClub.name}.`);
+  };
+
   const canManagePlayoffMatch = (match?: PlayoffMatch | null) =>
     Boolean(
       match &&
@@ -2976,6 +3030,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                 {renderLeagueActionButton("EDITAR CLUBES", "clubs", openClubAdminEditor, { admin: true })}
                 {settings.fillCpuTeams &&
                   renderLeagueActionButton("RENOMBRAR CLUBES", "rename", () => setShowCpuRenameForm(true), { admin: true })}
+                {renderLeagueActionButton("COMPENSAR CLUB", "prize", addTransferBudgetToClub, { admin: true })}
                 {renderLeagueActionButton("AGREGAR PRESUPUESTO", "prize", addTransferBudgetForAll, { admin: true })}
               </div>
             </div>

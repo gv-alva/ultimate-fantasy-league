@@ -3225,6 +3225,44 @@ app.post("/drafts/:code/add-budget", (req, res) => {
   res.json(getDraftPayload(code));
 });
 
+app.post("/drafts/:code/add-budget-club", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username, ownerKey, amount } = req.body;
+  const draft = ensureDraft(code);
+  const lobby = lobbies.get(code);
+
+  if (!draft || !lobby) {
+    return res.status(404).json({ error: "Draft no encontrado" });
+  }
+
+  if (lobby.creator !== username) {
+    return res.status(403).json({ error: "Solo el organizador puede compensar presupuesto" });
+  }
+
+  const team = draft.teams?.[ownerKey];
+  if (!team) {
+    return res.status(404).json({ error: "Club no encontrado" });
+  }
+
+  const parsedAmount = Math.round((Number(amount) || 0) * 10) / 10;
+  if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+    return res.status(400).json({ error: "Escribe una cantidad valida en millones" });
+  }
+
+  team.budget = Math.round((Number(team.budget || 0) + parsedAmount) * 10) / 10;
+  addNews(
+    draft,
+    code,
+    `Liga UFL: el organizador compenso con ${formatMoney(parsedAmount)} a ${team.name}`
+  );
+  addFaunaComment(draft, code, "budget", {
+    winner: team.name,
+    player: `${formatMoney(parsedAmount)}`,
+  });
+  sendDraftUpdate(code);
+  res.json(getDraftPayload(code));
+});
+
 app.post("/drafts/:code/playoff-result", (req, res) => {
   const code = String(req.params.code).trim();
   const { username, stage, homeGoals, awayGoals } = req.body;
