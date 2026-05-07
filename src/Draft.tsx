@@ -3,7 +3,7 @@ import faunaAvatar from "./assets/fauna.webp";
 import romanoAvatar from "./assets/romano.jpg";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
-const UI_VERSION = "1.8";
+const UI_VERSION = "1.9";
 const TEAM_SIZE_TARGET = 20;
 
 type Tab = "Inicio" | "Club" | "Liga" | "Transferencia";
@@ -2298,6 +2298,23 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     }));
   };
 
+  const uploadAdminPlayerImage = (file?: File | null) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      if (!result) {
+        alert("No se pudo leer la imagen.");
+        return;
+      }
+      updateAdminPlayerField("card", result);
+    };
+    reader.onerror = () => {
+      alert("No se pudo cargar la imagen.");
+    };
+    reader.readAsDataURL(file);
+  };
+
   const saveAdminPlayerChanges = async () => {
     if (!adminClubOwner || !adminPlayerId) {
       alert("Selecciona un club y un jugador");
@@ -4055,7 +4072,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                 <input className="input" value={adminPlayerForm.League} onChange={(e) => updateAdminPlayerField("League", e.target.value)} />
               </label>
               <label className="field field-full">
-                <span>Imagen especial (ruta o URL)</span>
+                <span>Imagen especial (ruta, URL o archivo)</span>
                 <input
                   className="input"
                   value={adminPlayerForm.card}
@@ -4063,6 +4080,27 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                   placeholder="/player-cards/mbappe-special.png"
                 />
               </label>
+              <div className="field field-full admin-image-upload">
+                <span>Subir imagen</span>
+                <input
+                  className="input"
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => uploadAdminPlayerImage(e.target.files?.[0])}
+                />
+                {adminPlayerForm.card ? (
+                  <div className="admin-image-preview">
+                    <img src={adminPlayerForm.card} alt="Vista previa del jugador" />
+                    <button
+                      type="button"
+                      className="small-action danger"
+                      onClick={() => updateAdminPlayerField("card", "")}
+                    >
+                      QUITAR IMAGEN ESPECIAL
+                    </button>
+                  </div>
+                ) : null}
+              </div>
               <label className="field">
                 <span>OVR</span>
                 <input className="input" value={adminPlayerForm.OVR} onChange={(e) => updateAdminPlayerField("OVR", e.target.value)} inputMode="numeric" />
