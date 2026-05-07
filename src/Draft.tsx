@@ -1322,7 +1322,14 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       name: teams[player]?.name || player,
       real: true,
     }));
-    const size = settings.format === "Pequena" ? 8 : settings.format === "Corta" ? 10 : 20;
+    const size =
+      competitionMode === "champions"
+        ? 36
+        : settings.format === "Pequena"
+          ? 8
+          : settings.format === "Corta"
+            ? 10
+            : 20;
     const serverCpuTeams = cpuTeams.map((team) => ({
       key: team.key,
       name: team.name,
@@ -1339,13 +1346,16 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       0,
       settings.fillCpuTeams ? size : realTeams.length
     );
-    const championsLimit = Math.max(1, Math.floor(allTeams.length / 3));
+    const championsLimit =
+      competitionMode === "champions"
+        ? allTeams.length
+        : Math.max(1, Math.floor(allTeams.length / 3));
 
     return allTeams.map((team, index) => ({
       ...team,
       champions: settings.champions && index < championsLimit,
     }));
-  }, [cpuTeams, players, settings.champions, settings.fillCpuTeams, settings.format, teams]);
+  }, [competitionMode, cpuTeams, players, settings.champions, settings.fillCpuTeams, settings.format, teams]);
 
   useEffect(() => {
     if (leagueTeams.length === 0) return;
