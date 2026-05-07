@@ -3,7 +3,7 @@ import faunaAvatar from "./assets/fauna.webp";
 import romanoAvatar from "./assets/romano.jpg";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
-const UI_VERSION = "1.9";
+const UI_VERSION = "1.9.1";
 const TEAM_SIZE_TARGET = 20;
 
 type Tab = "Inicio" | "Club" | "Liga" | "Transferencia";
@@ -2298,21 +2298,52 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     }));
   };
 
+  const compressAdminPlayerImage = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const source = typeof reader.result === "string" ? reader.result : "";
+        if (!source) {
+          reject(new Error("No se pudo leer la imagen."));
+          return;
+        }
+
+        const image = new Image();
+        image.onload = () => {
+          const maxWidth = 320;
+          const maxHeight = 440;
+          const ratio = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
+          const width = Math.max(1, Math.round(image.width * ratio));
+          const height = Math.max(1, Math.round(image.height * ratio));
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const context = canvas.getContext("2d");
+          if (!context) {
+            reject(new Error("No se pudo procesar la imagen."));
+            return;
+          }
+
+          context.drawImage(image, 0, 0, width, height);
+          const output = canvas.toDataURL("image/jpeg", 0.82);
+          resolve(output);
+        };
+        image.onerror = () => reject(new Error("No se pudo cargar la imagen."));
+        image.src = source;
+      };
+      reader.onerror = () => reject(new Error("No se pudo leer la imagen."));
+      reader.readAsDataURL(file);
+    });
+
   const uploadAdminPlayerImage = (file?: File | null) => {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
-      if (!result) {
-        alert("No se pudo leer la imagen.");
-        return;
-      }
-      updateAdminPlayerField("card", result);
-    };
-    reader.onerror = () => {
-      alert("No se pudo cargar la imagen.");
-    };
-    reader.readAsDataURL(file);
+    compressAdminPlayerImage(file)
+      .then((result) => {
+        updateAdminPlayerField("card", result);
+      })
+      .catch((error) => {
+        alert(error instanceof Error ? error.message : "No se pudo cargar la imagen.");
+      });
   };
 
   const saveAdminPlayerChanges = async () => {
