@@ -3,7 +3,7 @@ import faunaAvatar from "./assets/fauna.webp";
 import romanoAvatar from "./assets/romano.jpg";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
-const UI_VERSION = "1.4";
+const UI_VERSION = "1.6";
 const TEAM_SIZE_TARGET = 20;
 
 type Tab = "Inicio" | "Club" | "Liga" | "Transferencia";
@@ -111,6 +111,7 @@ type LeagueSettings = {
   leagueType: string;
   money: number;
   salaryCap: number;
+  competitionMode?: string;
   champions: boolean;
   fillCpuTeams: boolean;
   randomEvents?: boolean;
@@ -152,6 +153,8 @@ type DraftEvent = {
   code: string;
   deleted?: boolean;
   organizer: string;
+  competitionMode?: string;
+  championsPhaseLabels?: Record<string, string>;
   phase: ServerPhase;
   confirmedOwners: string[];
   auctionStage: number;
@@ -172,6 +175,7 @@ type DraftEvent = {
   cpuTeams: CpuTeam[];
   visibleRoundStart: number;
   playoff?: PlayoffState | null;
+  championsKnockout?: QuickTournamentState | null;
   quickTournament?: QuickTournamentState | null;
 };
 
@@ -825,6 +829,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [clubView, setClubView] = useState<"plantilla" | "training" | "sponsor">("plantilla");
   const [phase, setPhase] = useState<DraftPhase>("initial");
   const [serverPhase, setServerPhase] = useState<ServerPhase>("selection");
+  const [competitionMode, setCompetitionMode] = useState<string>(settings.competitionMode || "league");
   const [organizer, setOrganizer] = useState("");
   const [pool, setPool] = useState<Player[]>([]);
   const [search, setSearch] = useState("");
@@ -874,6 +879,12 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [showCpuRenameForm, setShowCpuRenameForm] = useState(false);
   const [showStandingEditForm, setShowStandingEditForm] = useState(false);
   const [showClubAdminForm, setShowClubAdminForm] = useState(false);
+  const [championsPhaseLabels, setChampionsPhaseLabels] = useState<Record<string, string>>({
+    round16: "Octavos",
+    quarterfinal: "Cuartos",
+    semifinal: "Semifinal",
+    final: "Final",
+  });
   const previousServerPhaseRef = useRef<ServerPhase | null>(null);
   const hasHydratedFromEventsRef = useRef(false);
   const activeTabRef = useRef<Tab>("Inicio");
@@ -896,6 +907,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [visibleRoundStart, setVisibleRoundStart] = useState(1);
   const [selectedLeagueClub, setSelectedLeagueClub] = useState("");
   const [playoff, setPlayoff] = useState<PlayoffState | null>(null);
+  const [championsKnockout, setChampionsKnockout] = useState<QuickTournamentState | null>(null);
   const [quickTournament, setQuickTournament] = useState<QuickTournamentState | null>(null);
   const [showQuickTournamentForm, setShowQuickTournamentForm] = useState(false);
   const [selectedQuickTeams, setSelectedQuickTeams] = useState<string[]>([]);
@@ -970,6 +982,13 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     knownNewsKeysRef.current = new Set(incomingNewsKeys);
     knownInboxIdsRef.current = new Set(incomingInboxIds);
 
+    setCompetitionMode(draft.competitionMode || "league");
+    setChampionsPhaseLabels(draft.championsPhaseLabels || {
+      round16: "Octavos",
+      quarterfinal: "Cuartos",
+      semifinal: "Semifinal",
+      final: "Final",
+    });
     setServerPhase(draft.phase);
     setOrganizer(draft.organizer);
     setConfirmedOwners(draft.confirmedOwners || []);
@@ -1010,6 +1029,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setCpuTeams(draft.cpuTeams || []);
     setVisibleRoundStart(draft.visibleRoundStart || 1);
     setPlayoff(draft.playoff || null);
+    setChampionsKnockout(draft.championsKnockout || null);
     setQuickTournament(draft.quickTournament || null);
 
     if (draft.phase === "dashboard") {
@@ -1061,6 +1081,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setActiveTab("Inicio");
     setClubView("plantilla");
     setOrganizer("");
+    setCompetitionMode(settings.competitionMode || "league");
     setServerPhase("selection");
     setConfirmedOwners([]);
     setShowCpuForm(false);
@@ -1068,6 +1089,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setShowStandingEditForm(false);
     setShowClubAdminForm(false);
     setPlayoff(null);
+    setChampionsKnockout(null);
     setQuickTournament(null);
     setShowQuickTournamentForm(false);
     setSelectedQuickTeams([]);
@@ -1076,6 +1098,12 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setSeasonChampionKey("");
     setChampionOverlay(null);
     setClubAnnouncement(null);
+    setChampionsPhaseLabels({
+      round16: "Octavos",
+      quarterfinal: "Cuartos",
+      semifinal: "Semifinal",
+      final: "Final",
+    });
     setAdminClubOwner("");
     setAdminPlayerId("");
     setAdminPlayerForm({
@@ -1402,10 +1430,14 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const totalSeasonMatches =
     settings.leagueType === "Fantasia"
       ? displayStandings.length * Math.max(displayStandings.length - 1, 0)
+      : competitionMode === "champions"
+        ? Math.floor((36 * 8) / 2)
       : displayStandings.length * 40;
   const matchesPerClub =
     settings.leagueType === "Fantasia"
       ? Math.max(displayStandings.length - 1, 0) * 2
+      : competitionMode === "champions"
+        ? 8
       : 40;
   const currentClubStanding = displayStandings.find((team) => team.key === currentUser);
   const currentClubMatchCount = currentClubStanding?.played || 0;
@@ -2425,6 +2457,96 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     alert(`Se agregaron ${amount}M a ${selectedClub.name}.`);
   };
 
+  const toggleCompetitionMode = async () => {
+    const response = await fetch(`${API_URL}/drafts/${leagueCode}/toggle-competition-mode`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      alert(errorData?.error || "No se pudo cambiar el modo de competencia");
+      return;
+    }
+
+    const payload = (await response.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
+    }
+    alert(`Modo cambiado a ${payload?.competitionMode === "champions" ? "Champions" : "Liga"}.`);
+  };
+
+  const configureChampionsPhases = async () => {
+    const round16 = window.prompt("Nombre de octavos (deja vacio para omitir):", championsPhaseLabels.round16 || "");
+    if (round16 === null) return;
+    const quarterfinal = window.prompt("Nombre de cuartos (deja vacio para omitir):", championsPhaseLabels.quarterfinal || "");
+    if (quarterfinal === null) return;
+    const semifinal = window.prompt("Nombre de semifinal (deja vacio para omitir):", championsPhaseLabels.semifinal || "");
+    if (semifinal === null) return;
+    const final = window.prompt("Nombre de final (deja vacio para omitir):", championsPhaseLabels.final || "");
+    if (final === null) return;
+
+    const response = await fetch(`${API_URL}/drafts/${leagueCode}/champions-phase-config`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+        labels: { round16, quarterfinal, semifinal, final },
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      alert(errorData?.error || "No se pudieron configurar las fases");
+      return;
+    }
+
+    const payload = (await response.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
+    }
+    alert("Fases de Champions actualizadas.");
+  };
+
+  const submitChampionsKnockoutResult = async (roundIndex: number, matchId: string, homeName: string, awayName: string) => {
+    const homeGoalsText = window.prompt(`Goles de ${homeName}:`, "1");
+    if (homeGoalsText === null) return;
+    const awayGoalsText = window.prompt(`Goles de ${awayName}:`, "0");
+    if (awayGoalsText === null) return;
+
+    const response = await fetch(`${API_URL}/drafts/${leagueCode}/champions-knockout-result`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+        roundIndex,
+        matchId,
+        homeGoals: Number(homeGoalsText),
+        awayGoals: Number(awayGoalsText),
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      alert(errorData?.error || "No se pudo guardar el resultado");
+      return;
+    }
+
+    const payload = (await response.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
+    }
+  };
+
   const canManagePlayoffMatch = (match?: PlayoffMatch | null) =>
     Boolean(
       match &&
@@ -2996,7 +3118,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
 
   const renderTable = () => (
     <section className="draft-panel">
-      <h2>Liga</h2>
+      <h2>{competitionMode === "champions" ? "Champions" : "Liga"}</h2>
       <div className="draft-list-item season-prize-card">
         <div className="season-prize-header">
           <span className="season-prize-icon">
@@ -3026,6 +3148,14 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
           <div className="league-admin-block">
               <div className="league-admin-title">Administracion</div>
               <div className="league-admin-grid">
+                {renderLeagueActionButton(
+                  competitionMode === "champions" ? "CAMBIAR A LIGA" : "CAMBIAR A CHAMPIONS",
+                  "league",
+                  toggleCompetitionMode,
+                  { admin: true }
+                )}
+                {competitionMode === "champions" &&
+                  renderLeagueActionButton("CONFIGURAR FASES", "playoff", configureChampionsPhases, { admin: true })}
                 {renderLeagueActionButton("EDITAR TABLA", "edit", openStandingEditor, { admin: true })}
                 {renderLeagueActionButton("EDITAR CLUBES", "clubs", openClubAdminEditor, { admin: true })}
                 {settings.fillCpuTeams &&
@@ -3045,7 +3175,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                 <strong className={seasonChampionKey === team.key ? "champion-name" : ""}>
                   {championLabel(team.key, team.name)}
                 </strong>
-                <em>{team.champions ? "Champions" : "Liga"}</em>
+                <em>{competitionMode === "champions" ? "Champions" : team.champions ? "Champions" : "Liga"}</em>
               </div>
                 <div className="league-stats-grid">
                   <small><b>{team.played}</b> PJ</small>
@@ -3083,6 +3213,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                 <strong className={seasonChampionKey === selectedLeagueClubStanding.key ? "champion-name" : ""}>
                   {championLabel(selectedLeagueClubStanding.key, selectedLeagueClubStanding.name)}
                 </strong>
+                <em>{competitionMode === "champions" ? "Champions" : "Liga"}</em>
                   <div className="club-summary-stats">
                     <small><b>{selectedLeagueClubStanding.played}</b> PJ</small>
                     <small className="stat-win"><b>{selectedLeagueClubStanding.wins}</b> G</small>
@@ -3099,6 +3230,50 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
           )}
         </div>
       ) : tableView === "liguilla" ? (
+        competitionMode === "champions" ? (
+          <div className="playoff-grid">
+            {!regularSeasonComplete ? (
+              <div className="draft-empty-state">La fase final se habilita cuando todos lleguen a 8 partidos de Champions.</div>
+            ) : !championsKnockout?.active ? (
+              <div className="draft-empty-state">Todavia no hay fase final generada.</div>
+            ) : (
+              <>
+                {championsKnockout.rounds.map((round, roundIndex) => (
+                  <div key={`champions-round-${roundIndex}`} className="draft-list-item current-round">
+                    {round.name ? <strong>{round.name}</strong> : null}
+                    <div className="schedule-round">
+                      {round.matches.map((match) => (
+                        <div key={match.id} className="draft-list-item">
+                          <p>{match.homeName || "Pendiente"} vs {match.awayName || "Pendiente"}</p>
+                          {match.result ? (
+                            <small>
+                              {match.result.homeGoals}-{match.result.awayGoals} | Gana {match.result.homeGoals > match.result.awayGoals ? match.homeName : match.awayName}
+                            </small>
+                          ) : (
+                            <small>Pendiente</small>
+                          )}
+                          {isOrganizer && match.homeKey && match.awayKey && !match.played && (
+                            <button
+                              className="small-action"
+                              onClick={() => submitChampionsKnockoutResult(roundIndex, match.id, match.homeName, match.awayName)}
+                            >
+                              AGREGAR RESULTADO
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {isOrganizer && championsKnockout.championKey && (
+                  <button className="small-action protected-action" onClick={finishPlayoff}>
+                    TERMINAR CHAMPIONS
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        ) : (
         <div className="playoff-grid">
           {liguillaTeams.length < 4 ? (
             <div className="draft-empty-state">Todavia no hay suficientes clubes para mostrar la liguilla.</div>
@@ -3156,6 +3331,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
             </>
           )}
         </div>
+        )
       ) : tableView === "torneo" ? (
         <div className="playoff-grid">
           {!quickTournament?.active ? (

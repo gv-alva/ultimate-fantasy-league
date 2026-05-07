@@ -4,7 +4,7 @@ import Draft from "./Draft";
 import Lobby from "./Lobby";
 import logo from "./assets/logo.png";
 
-const APP_VERSION = "1.4";
+const APP_VERSION = "1.6";
 
 type LobbyData = {
   code: string;
@@ -16,6 +16,7 @@ type LobbyData = {
   leagueType?: string;
   money?: number;
   salaryCap?: number;
+  competitionMode?: string;
   champions?: boolean;
   fillCpuTeams?: boolean;
   randomEvents?: boolean;
@@ -34,6 +35,7 @@ type LeagueSettings = {
   leagueType: string;
   money: number;
   salaryCap: number;
+  competitionMode: string;
   champions: boolean;
   fillCpuTeams: boolean;
   randomEvents: boolean;
@@ -67,6 +69,7 @@ const getLeagueSettings = (
   leagueType: lobby.leagueType || fallback.leagueType,
   money: lobby.money || fallback.money,
   salaryCap: lobby.salaryCap || fallback.salaryCap,
+  competitionMode: lobby.competitionMode || fallback.competitionMode,
   champions: lobby.champions ?? fallback.champions,
   fillCpuTeams: lobby.fillCpuTeams ?? fallback.fillCpuTeams,
   randomEvents: lobby.randomEvents ?? fallback.randomEvents,
@@ -115,6 +118,7 @@ export default function App() {
     leagueType: "Real",
     money: 220,
     salaryCap: 1500,
+    competitionMode: "league",
     champions: false,
     fillCpuTeams: true,
     randomEvents: true,
@@ -308,11 +312,12 @@ export default function App() {
     setLobbyMaxManagers(4);
     setLobbyStatus("waiting");
       setLeagueSettings({
-        format: "Normal",
-        leagueType: "Real",
-        money: 220,
-        salaryCap: 1500,
-        champions: false,
+      format: "Normal",
+      leagueType: "Real",
+      money: 220,
+      salaryCap: 1500,
+      competitionMode: "league",
+      champions: false,
         fillCpuTeams: true,
         randomEvents: true,
         leaguePrize: 50,
@@ -338,6 +343,7 @@ export default function App() {
       leagueType,
       money,
       salaryCap,
+      competitionMode: "league",
       champions,
       fillCpuTeams,
       randomEvents,
@@ -366,6 +372,7 @@ export default function App() {
           leagueType,
           money,
           salaryCap,
+          competitionMode: "league",
           leaguePrize,
           playoffPrize1,
           playoffPrize2,
