@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v1.7";
+const SERVER_VERSION = "v1.8";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1500;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -3402,7 +3402,7 @@ app.post("/drafts/:code/admin-player-update", (req, res) => {
     "salaryMax",
     "releaseValue",
   ];
-  const textKeys = ["Position", "Nation", "League", "Preferred foot", "Weak foot", "Skill moves"];
+  const textKeys = ["Position", "Nation", "League", "Preferred foot", "Weak foot", "Skill moves", "card"];
 
   const nextPlayer = { ...currentPlayer };
   numericKeys.forEach((key) => {

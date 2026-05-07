@@ -3,7 +3,7 @@ import faunaAvatar from "./assets/fauna.webp";
 import romanoAvatar from "./assets/romano.jpg";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
-const UI_VERSION = "1.7";
+const UI_VERSION = "1.8";
 const TEAM_SIZE_TARGET = 20;
 
 type Tab = "Inicio" | "Club" | "Liga" | "Transferencia";
@@ -943,6 +943,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     Position: "",
     Nation: "",
     League: "",
+    card: "",
   });
   const [seasonChampionKey, setSeasonChampionKey] = useState("");
   const [championOverlay, setChampionOverlay] = useState<ChampionOverlayState | null>(null);
@@ -2279,6 +2280,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       Position: String(nextPlayer?.Position || ""),
       Nation: String(nextPlayer?.Nation || ""),
       League: String(nextPlayer?.League || ""),
+      card: String(nextPlayer?.card || ""),
     });
   };
 
@@ -4051,6 +4053,15 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
               <label className="field">
                 <span>Liga</span>
                 <input className="input" value={adminPlayerForm.League} onChange={(e) => updateAdminPlayerField("League", e.target.value)} />
+              </label>
+              <label className="field field-full">
+                <span>Imagen especial (ruta o URL)</span>
+                <input
+                  className="input"
+                  value={adminPlayerForm.card}
+                  onChange={(e) => updateAdminPlayerField("card", e.target.value)}
+                  placeholder="/player-cards/mbappe-special.png"
+                />
               </label>
               <label className="field">
                 <span>OVR</span>
