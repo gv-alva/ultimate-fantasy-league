@@ -3,7 +3,7 @@ import faunaAvatar from "./assets/fauna.webp";
 import romanoAvatar from "./assets/romano.jpg";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
-const UI_VERSION = "1.9.1";
+const UI_VERSION = "1.9.2";
 const TEAM_SIZE_TARGET = 20;
 
 type Tab = "Inicio" | "Club" | "Liga" | "Transferencia";
@@ -2300,6 +2300,11 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
 
   const compressAdminPlayerImage = (file: File) =>
     new Promise<string>((resolve, reject) => {
+      if (file.type === "application/pdf") {
+        reject(new Error("Sube una imagen PNG, WEBP o JPG. El PDF directo no se puede usar como carta."));
+        return;
+      }
+
       const reader = new FileReader();
       reader.onload = () => {
         const source = typeof reader.result === "string" ? reader.result : "";
@@ -2324,8 +2329,9 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
             return;
           }
 
+          context.clearRect(0, 0, width, height);
           context.drawImage(image, 0, 0, width, height);
-          const output = canvas.toDataURL("image/jpeg", 0.82);
+          const output = canvas.toDataURL("image/png");
           resolve(output);
         };
         image.onerror = () => reject(new Error("No se pudo cargar la imagen."));
