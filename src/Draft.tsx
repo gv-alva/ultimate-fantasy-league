@@ -3,7 +3,7 @@ import faunaAvatar from "./assets/fauna.webp";
 import romanoAvatar from "./assets/romano.jpg";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/$/, "");
-const UI_VERSION = "1.6";
+const UI_VERSION = "1.7";
 const TEAM_SIZE_TARGET = 20;
 
 type Tab = "Inicio" | "Club" | "Liga" | "Transferencia";
@@ -242,6 +242,7 @@ type QuickTournamentState = {
   championKey?: string;
   prize?: number;
   runnerUpPrize?: number;
+  qualifiedKeys?: string[];
 };
 
 type IconName =
@@ -880,6 +881,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   const [showStandingEditForm, setShowStandingEditForm] = useState(false);
   const [showClubAdminForm, setShowClubAdminForm] = useState(false);
   const [championsPhaseLabels, setChampionsPhaseLabels] = useState<Record<string, string>>({
+    playoff: "Repechaje",
     round16: "Octavos",
     quarterfinal: "Cuartos",
     semifinal: "Semifinal",
@@ -984,6 +986,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
 
     setCompetitionMode(draft.competitionMode || "league");
     setChampionsPhaseLabels(draft.championsPhaseLabels || {
+      playoff: "Repechaje",
       round16: "Octavos",
       quarterfinal: "Cuartos",
       semifinal: "Semifinal",
@@ -1099,6 +1102,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     setChampionOverlay(null);
     setClubAnnouncement(null);
     setChampionsPhaseLabels({
+      playoff: "Repechaje",
       round16: "Octavos",
       quarterfinal: "Cuartos",
       semifinal: "Semifinal",
@@ -2482,6 +2486,8 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
   };
 
   const configureChampionsPhases = async () => {
+    const playoff = window.prompt("Nombre del repechaje (deja vacio para omitir):", championsPhaseLabels.playoff || "");
+    if (playoff === null) return;
     const round16 = window.prompt("Nombre de octavos (deja vacio para omitir):", championsPhaseLabels.round16 || "");
     if (round16 === null) return;
     const quarterfinal = window.prompt("Nombre de cuartos (deja vacio para omitir):", championsPhaseLabels.quarterfinal || "");
@@ -2498,7 +2504,7 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
       },
       body: JSON.stringify({
         username: currentUser,
-        labels: { round16, quarterfinal, semifinal, final },
+        labels: { playoff, round16, quarterfinal, semifinal, final },
       }),
     });
 
@@ -2545,6 +2551,46 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
     if (payload?.teams) {
       applyDraftPayload(payload);
     }
+  };
+
+  const assignChampionsMatch = async (roundIndex: number, matchId: string, currentHomeKey = "", currentAwayKey = "") => {
+    const options = displayStandings.map((team) => `${team.key}:${team.name}`).join("\n");
+    const homeInput = window.prompt(
+      `Escribe la clave del club local para este cruce:\n${options}`,
+      currentHomeKey
+    );
+    if (homeInput === null) return;
+    const awayInput = window.prompt(
+      `Escribe la clave del club visitante para este cruce:\n${options}`,
+      currentAwayKey
+    );
+    if (awayInput === null) return;
+
+    const response = await fetch(`${API_URL}/drafts/${leagueCode}/champions-assign-match`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: currentUser,
+        roundIndex,
+        matchId,
+        homeKey: homeInput.trim(),
+        awayKey: awayInput.trim(),
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      alert(errorData?.error || "No se pudo asignar el cruce de Champions");
+      return;
+    }
+
+    const payload = (await response.json().catch(() => null)) as DraftEvent | null;
+    if (payload?.teams) {
+      applyDraftPayload(payload);
+    }
+    alert("Cruce de Champions actualizado.");
   };
 
   const canManagePlayoffMatch = (match?: PlayoffMatch | null) =>
@@ -3252,13 +3298,23 @@ export default function Draft({ leagueCode, players, currentUser, settings, onLo
                           ) : (
                             <small>Pendiente</small>
                           )}
-                          {isOrganizer && match.homeKey && match.awayKey && !match.played && (
-                            <button
-                              className="small-action"
-                              onClick={() => submitChampionsKnockoutResult(roundIndex, match.id, match.homeName, match.awayName)}
-                            >
-                              AGREGAR RESULTADO
-                            </button>
+                          {isOrganizer && !match.played && (
+                            <div className="offer-actions">
+                              <button
+                                className="small-action"
+                                onClick={() => assignChampionsMatch(roundIndex, match.id, match.homeKey, match.awayKey)}
+                              >
+                                ASIGNAR CRUCE
+                              </button>
+                              {match.homeKey && match.awayKey && (
+                                <button
+                                  className="small-action"
+                                  onClick={() => submitChampionsKnockoutResult(roundIndex, match.id, match.homeName, match.awayName)}
+                                >
+                                  AGREGAR RESULTADO
+                                </button>
+                              )}
+                            </div>
                           )}
                         </div>
                       ))}

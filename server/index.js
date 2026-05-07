@@ -15,7 +15,7 @@ const dataDirectory =
   process.env.DATA_DIR ||
   __dirname;
 
-const SERVER_VERSION = "v1.6";
+const SERVER_VERSION = "v1.7";
 const TEAM_SIZE_TARGET = 20;
 const DEFAULT_SALARY_CAP = 1500;
 const MAX_NEGOTIATION_ATTEMPTS = 3;
@@ -433,6 +433,7 @@ const getLobbyPrizeConfig = (lobby = {}) => ({
 });
 
 const getDefaultChampionsPhaseLabels = () => ({
+  playoff: "Repechaje",
   round16: "Octavos",
   quarterfinal: "Cuartos",
   semifinal: "Semifinal",
@@ -918,7 +919,9 @@ const buildChampionsKnockout = (draft, lobby) => {
     ...getDefaultChampionsPhaseLabels(),
     ...(lobby?.championsPhaseLabels || {}),
   };
-  const rankedTeams = sortStandings(draft.standings || []).slice(0, 16);
+  const rankedTeams = sortStandings(draft.standings || []);
+  const topEight = rankedTeams.slice(0, 8);
+  const playoffTeams = rankedTeams.slice(8, 24);
   if (rankedTeams.length < 2) return null;
 
   const createEmptyMatch = (roundIndex, matchIndex) => ({
@@ -932,9 +935,9 @@ const buildChampionsKnockout = (draft, lobby) => {
     winnerKey: "",
   });
 
-  const seededRound16 = Array.from({ length: 8 }, (_, index) => {
-    const home = rankedTeams[index];
-    const away = rankedTeams[rankedTeams.length - 1 - index];
+  const seededPlayoff = Array.from({ length: 8 }, (_, index) => {
+    const home = playoffTeams[index];
+    const away = playoffTeams[playoffTeams.length - 1 - index];
     return {
       id: `champions-0-${index + 1}`,
       homeKey: home?.key || "",
@@ -952,31 +955,34 @@ const buildChampionsKnockout = (draft, lobby) => {
     labels,
     rounds: [
       {
+        name: labels.playoff || "",
+        matches: seededPlayoff,
+      },
+      {
         name: labels.round16 || "",
-        matches: seededRound16,
+        matches: Array.from({ length: 8 }, (_, index) => ({
+          ...createEmptyMatch(1, index),
+        })),
       },
       {
-    name: labels.quarterfinal || "",
-    matches: Array.from({ length: 4 }, (_, index) => ({
-      ...createEmptyMatch(1, index),
-    })),
+        name: labels.quarterfinal || "",
+        matches: Array.from({ length: 4 }, (_, index) => ({
+          ...createEmptyMatch(2, index),
+        })),
       },
       {
-    name: labels.semifinal || "",
-    matches: Array.from({ length: 2 }, (_, index) => ({
-      ...createEmptyMatch(2, index),
-    })),
+        name: labels.semifinal || "",
+        matches: Array.from({ length: 2 }, (_, index) => ({
+          ...createEmptyMatch(3, index),
+        })),
       },
       {
-    name: labels.final || "",
-    matches: [
-      {
-        ...createEmptyMatch(3, 0),
-      },
-    ],
+        name: labels.final || "",
+        matches: [{ ...createEmptyMatch(4, 0) }],
       },
     ],
     championKey: "",
+    qualifiedKeys: topEight.map((team) => team.key),
   };
 };
 
@@ -995,21 +1001,43 @@ const syncChampionsKnockout = (draft, lobby) => {
 
   const rankedTeams = sortStandings(draft.standings || []);
   const teamByKey = new Map(rankedTeams.map((team) => [team.key, team]));
-  const round16Round = bracket.rounds[0];
-  const quarterRound = bracket.rounds[1];
-  const semiRound = bracket.rounds[2];
-  const finalRound = bracket.rounds[3];
+  const topEight = rankedTeams.slice(0, 8);
+  bracket.qualifiedKeys = topEight.map((team) => team.key);
+  const playoffRound = bracket.rounds[0];
+  const round16Round = bracket.rounds[1];
+  const quarterRound = bracket.rounds[2];
+  const semiRound = bracket.rounds[3];
+  const finalRound = bracket.rounds[4];
+
+  if (playoffRound) {
+    const playoffTeams = rankedTeams.slice(8, 24);
+    playoffRound.matches.forEach((match, index) => {
+      if (match.played) return;
+      if (!match.homeKey || !match.awayKey) {
+        const home = playoffTeams[index];
+        const away = playoffTeams[playoffTeams.length - 1 - index];
+        match.homeKey = match.homeKey || home?.key || "";
+        match.awayKey = match.awayKey || away?.key || "";
+        match.homeName = match.homeName || home?.name || "";
+        match.awayName = match.awayName || away?.name || "";
+      }
+    });
+  }
 
   if (round16Round) {
-    const round16Teams = rankedTeams.slice(0, 16);
     round16Round.matches.forEach((match, index) => {
       if (match.played) return;
-      const home = round16Teams[index];
-      const away = round16Teams[round16Teams.length - 1 - index];
-      match.homeKey = home?.key || "";
-      match.awayKey = away?.key || "";
-      match.homeName = home?.name || "";
-      match.awayName = away?.name || "";
+      const seeded = topEight[index];
+      if (!match.homeKey) {
+        match.homeKey = seeded?.key || "";
+        match.homeName = seeded?.name || "";
+      }
+      if (!match.homeName && match.homeKey) {
+        match.homeName = teamByKey.get(match.homeKey)?.name || match.homeName || "";
+      }
+      if (!match.awayName && match.awayKey) {
+        match.awayName = teamByKey.get(match.awayKey)?.name || match.awayName || "";
+      }
     });
   }
 
@@ -1018,25 +1046,20 @@ const syncChampionsKnockout = (draft, lobby) => {
     toRound.matches.forEach((match, index) => {
       const homeSource = fromRound.matches[index * 2];
       const awaySource = fromRound.matches[index * 2 + 1];
-      if (homeSource?.winnerKey) {
+      if (homeSource?.winnerKey && !match.homeKey) {
         const homeWinner = teamByKey.get(homeSource.winnerKey);
         match.homeKey = homeSource.winnerKey;
         match.homeName = homeWinner?.name || homeSource.homeName || "";
-      } else if (!match.played) {
-        match.homeKey = "";
-        match.homeName = "";
       }
-      if (awaySource?.winnerKey) {
+      if (awaySource?.winnerKey && !match.awayKey) {
         const awayWinner = teamByKey.get(awaySource.winnerKey);
         match.awayKey = awaySource.winnerKey;
         match.awayName = awayWinner?.name || awaySource.awayName || awaySource.homeName || "";
-      } else if (!match.played) {
-        match.awayKey = "";
-        match.awayName = "";
       }
     });
   };
 
+  wireNextRound(playoffRound, round16Round);
   wireNextRound(round16Round, quarterRound);
   wireNextRound(quarterRound, semiRound);
   wireNextRound(semiRound, finalRound);
@@ -3042,7 +3065,19 @@ app.post("/drafts/:code/start-season", (req, res) => {
   }
 
   if ((draft.pendingSignings || []).length > 0) {
-    return res.status(400).json({ error: "Todavia hay fichajes pendientes por negociar" });
+    (draft.pendingSignings || []).forEach((signing) => {
+      if (!signing?.owner || !signing?.player?.Name) return;
+      if (!draft.inbox[signing.owner]) {
+        draft.inbox[signing.owner] = [];
+      }
+      draft.inbox[signing.owner].unshift({
+        id: `market-close-${signing.id}-${Date.now()}`,
+        title: "Negociacion cancelada",
+        body: `La negociacion salarial de ${signing.player.Name} fue cancelada porque el organizador cerro el mercado.`,
+        playerId: signing.player.ID,
+      });
+    });
+    draft.pendingSignings = [];
   }
 
   Object.keys(draft.teams).forEach((owner) => {
@@ -3550,6 +3585,7 @@ app.post("/drafts/:code/champions-phase-config", (req, res) => {
   lobby.championsPhaseLabels = {
     ...getDefaultChampionsPhaseLabels(),
     ...(lobby.championsPhaseLabels || {}),
+    playoff: String(labels.playoff ?? lobby.championsPhaseLabels?.playoff ?? getDefaultChampionsPhaseLabels().playoff ?? "").trim(),
     round16: String(labels.round16 ?? lobby.championsPhaseLabels?.round16 ?? getDefaultChampionsPhaseLabels().round16 ?? "").trim(),
     quarterfinal: String(labels.quarterfinal ?? lobby.championsPhaseLabels?.quarterfinal ?? getDefaultChampionsPhaseLabels().quarterfinal ?? "").trim(),
     semifinal: String(labels.semifinal ?? lobby.championsPhaseLabels?.semifinal ?? getDefaultChampionsPhaseLabels().semifinal ?? "").trim(),
@@ -3557,8 +3593,83 @@ app.post("/drafts/:code/champions-phase-config", (req, res) => {
   };
 
   if (lobby.competitionMode === "champions" && draft.regularSeasonComplete) {
-    draft.championsKnockout = buildChampionsKnockout(draft, lobby);
+    if (draft.championsKnockout?.rounds?.length) {
+      draft.championsKnockout.labels = {
+        ...draft.championsKnockout.labels,
+        ...lobby.championsPhaseLabels,
+      };
+      draft.championsKnockout.rounds = draft.championsKnockout.rounds.map((round, index) => ({
+        ...round,
+        name:
+          index === 0
+            ? lobby.championsPhaseLabels.playoff || ""
+            : index === 1
+              ? lobby.championsPhaseLabels.round16 || ""
+              : index === 2
+                ? lobby.championsPhaseLabels.quarterfinal || ""
+                : index === 3
+                  ? lobby.championsPhaseLabels.semifinal || ""
+                  : lobby.championsPhaseLabels.final || "",
+      }));
+    } else {
+      draft.championsKnockout = buildChampionsKnockout(draft, lobby);
+    }
   }
+
+  sendDraftUpdate(code);
+  res.json(getDraftPayload(code));
+});
+
+app.post("/drafts/:code/champions-assign-match", (req, res) => {
+  const code = String(req.params.code).trim();
+  const { username, roundIndex, matchId, homeKey, awayKey } = req.body;
+  const draft = ensureDraft(code);
+  const lobby = lobbies.get(code);
+
+  if (!draft || !lobby || lobby.competitionMode !== "champions" || !draft.championsKnockout?.active) {
+    return res.status(404).json({ error: "Fase final de Champions no encontrada" });
+  }
+
+  if (lobby.creator !== username) {
+    return res.status(403).json({ error: "Solo el organizador puede asignar cruces de Champions" });
+  }
+
+  const round = draft.championsKnockout.rounds?.[Number(roundIndex)];
+  const match = round?.matches?.find((item) => item.id === matchId);
+  if (!round || !match) {
+    return res.status(404).json({ error: "Partido no encontrado" });
+  }
+
+  const trimmedHomeKey = String(homeKey || "").trim();
+  const trimmedAwayKey = String(awayKey || "").trim();
+  if (!trimmedHomeKey || !trimmedAwayKey || trimmedHomeKey === trimmedAwayKey) {
+    return res.status(400).json({ error: "Selecciona dos clubes distintos" });
+  }
+
+  const standingsMap = new Map((draft.standings || []).map((team) => [team.key, team]));
+  const homeTeam = standingsMap.get(trimmedHomeKey);
+  const awayTeam = standingsMap.get(trimmedAwayKey);
+  if (!homeTeam || !awayTeam) {
+    return res.status(404).json({ error: "No se encontraron esos clubes en la tabla" });
+  }
+
+  const usedKeys = new Set(
+    round.matches
+      .filter((item) => item.id !== match.id)
+      .flatMap((item) => [item.homeKey, item.awayKey])
+      .filter(Boolean)
+  );
+  if (usedKeys.has(trimmedHomeKey) || usedKeys.has(trimmedAwayKey)) {
+    return res.status(400).json({ error: "Uno de esos clubes ya esta asignado en esta fase" });
+  }
+
+  match.homeKey = trimmedHomeKey;
+  match.awayKey = trimmedAwayKey;
+  match.homeName = homeTeam.name;
+  match.awayName = awayTeam.name;
+  match.played = false;
+  match.result = null;
+  match.winnerKey = "";
 
   sendDraftUpdate(code);
   res.json(getDraftPayload(code));

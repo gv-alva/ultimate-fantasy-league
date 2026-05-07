@@ -4,7 +4,7 @@ import Draft from "./Draft";
 import Lobby from "./Lobby";
 import logo from "./assets/logo.png";
 
-const APP_VERSION = "1.6";
+const APP_VERSION = "1.7";
 
 type LobbyData = {
   code: string;
